@@ -1,0 +1,435 @@
+---
+title: Durable Objects
+description: Real-time WebSocket streaming for investigation events and graph updates
+---
+
+## Overview
+
+Cloudflare Durable Objects power the real-time streaming capabilities in Connected. Two Durable Object classes handle different types of real-time updates:
+
+1. **`InvestigationEventsBroadcaster`**: Per-investigation event streaming
+2. **`GraphBroadcaster`**: Global graph update broadcasting
+
+## Configuration
+
+Durable Objects are configured in `wrangler.toml`:
+
+```toml
+[durable_objects]
+bindings = [
+  { name = "GRAPH_BROADCASTER", class_name = "GraphBroadcaster" },
+  { name = "INVESTIGATION_EVENTS_BROADCASTER", class_name = "InvestigationEventsBroadcaster" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GraphBroadcaster"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["InvestigationEventsBroadcaster"]
+```
+
+## InvestigationEventsBroadcaster
+
+Manages WebSocket connections for streaming investigation progress events. **One instance per investigation** (identified by `runId`).
+
+### Features
+
+- **Hibernatable WebSockets**: Durable Object can sleep while clients stay connected
+- **Event Buffering**: Events stored in DO storage for replay to late-joining clients
+- **Automatic Cleanup**: Self-destructs 1 hour after investigation completes
+- **Cursor-based Replay**: Clients can resume from a specific event index
+
+### Implementation
+
+```typescript
+// apps/worker/src/durable-objects/investigation-events-broadcaster.ts:28
+export class InvestigationEventsBroadcaster extends DurableObject {
+  private eventIndex: number = 0;
+  private isComplete: boolean = false;
+
+  constructor(ctx: DurableObjectState, env: unknown) {
+    super(ctx, env);
+    // Restore state on hibernation wake-up
+    this.ctx.blockConcurrencyWhile(async () => {
+      const stored = await this.ctx.storage.get<number>("eventIndex");
+      this.eventIndex = stored ?? 0;
+      const complete = await this.ctx.storage.get<boolean>("isComplete");
+      this.isComplete = complete ?? false;
+    });
+  }
+}
+```
+
+### Creating an Instance
+
+Instances are created per-runId:
+
+```typescript
+// apps/worker/src/index.ts:143
+if (url.pathname.startsWith("/api/chat/ws/") && 
+    request.headers.get("Upgrade") === "websocket") {
+  const runId = url.pathname.split("/").pop();
+  
+  // Route to per-runId Durable Object
+  const id = env.INVESTIGATION_EVENTS_BROADCASTER.idFromName(runId);
+  const stub = env.INVESTIGATION_EVENTS_BROADCASTER.get(id);
+  
+  return stub.fetch(request);
+}
+```
+
+### WebSocket Upgrade
+
+```typescript
+// apps/worker/src/durable-objects/investigation-events-broadcaster.ts:64
+private async handleWebSocketUpgrade(request: Request): Promise<Response> {
+  const pair = new WebSocketPair();
+  const [client, server] = Object.values(pair);
+
+  // Get cursor for replay (e.g., ?cursor=5 to replay from event #5)
+  const url = new URL(request.url);
+  const cursor = url.searchParams.get("cursor") 
+    ? parseInt(url.searchParams.get("cursor")!, 10) 
+    : 0;
+
+  // Accept with hibernation support
+  this.ctx.acceptWebSocket(server);
+
+  // Send buffered events since cursor
+  await this.sendBufferedEvents(server, cursor);
+
+  return new Response(null, { status: 101, webSocket: client });
+}
+```
+
+### Emitting Events
+
+Workflows emit events to the Durable Object:
+
+```typescript
+// apps/worker/src/durable-objects/investigation-events-broadcaster.ts:82
+private async handleEmit(request: Request): Promise<Response> {
+  const event = await request.json() as InvestigationEvent;
+
+  // Store event with sequential index
+  const index = this.eventIndex++;
+  await this.ctx.storage.put(`event:${index}`, { event, index });
+  await this.ctx.storage.put("eventIndex", this.eventIndex);
+
+  // Check for completion events
+  if (event.type === "final" || event.type === "no_path" || event.type === "error") {
+    this.isComplete = true;
+    await this.ctx.storage.put("isComplete", true);
+    // Schedule cleanup after 1 hour
+    await this.ctx.storage.setAlarm(Date.now() + 3600 * 1000);
+  }
+
+  // Broadcast to all connected WebSockets
+  const message = JSON.stringify({
+    type: "event",
+    data: event,
+    index,
+  });
+
+  const sockets = this.ctx.getWebSockets();
+  for (const ws of sockets) {
+    try {
+      ws.send(message);
+    } catch {
+      // Connection dead, will be cleaned up
+    }
+  }
+
+  return Response.json({ success: true, index, clients: sockets.length });
+}
+```
+
+### Event Replay
+
+Late-joining clients receive buffered events:
+
+```typescript
+// apps/worker/src/durable-objects/investigation-events-broadcaster.ts:128
+private async sendBufferedEvents(ws: WebSocket, fromCursor: number): Promise<void> {
+  // Send all events from cursor to current index
+  for (let i = fromCursor; i < this.eventIndex; i++) {
+    const stored = await this.ctx.storage.get<StoredEvent>(`event:${i}`);
+    if (stored) {
+      ws.send(JSON.stringify({
+        type: "event",
+        data: stored.event,
+        index: stored.index,
+      }));
+    }
+  }
+
+  // If investigation is complete, send completion signal
+  if (this.isComplete) {
+    ws.send(JSON.stringify({ type: "complete" }));
+  }
+}
+```
+
+### Hibernation Handlers
+
+Handlers for hibernatable WebSockets:
+
+```typescript
+// apps/worker/src/durable-objects/investigation-events-broadcaster.ts:167
+async webSocketMessage(ws: WebSocket, message: string): Promise<void> {
+  const parsed = JSON.parse(message);
+
+  if (parsed.type === "ping") {
+    ws.send(JSON.stringify({ type: "pong" }));
+  }
+
+  // Client can request replay from specific cursor
+  if (parsed.type === "replay" && typeof parsed.cursor === "number") {
+    await this.sendBufferedEvents(ws, parsed.cursor);
+  }
+}
+
+async webSocketClose(_ws: WebSocket): Promise<void> {
+  // Automatic cleanup by runtime
+}
+
+async webSocketError(_ws: WebSocket): Promise<void> {
+  // Automatic cleanup by runtime
+}
+```
+
+### Automatic Cleanup
+
+```typescript
+// apps/worker/src/durable-objects/investigation-events-broadcaster.ts:193
+async alarm(): Promise<void> {
+  // Delete all stored events after TTL (1 hour)
+  await this.ctx.storage.deleteAll();
+}
+```
+
+### Client Usage
+
+```typescript
+// Connect to investigation event stream
+const ws = new WebSocket('wss://api.example.com/api/chat/ws/run-123');
+
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  
+  if (message.type === 'event') {
+    const investigationEvent = message.data;
+    console.log('Investigation event:', investigationEvent);
+  } else if (message.type === 'complete') {
+    console.log('Investigation complete!');
+  }
+};
+
+// Reconnect with cursor to resume from specific event
+const wsResume = new WebSocket('wss://api.example.com/api/chat/ws/run-123?cursor=5');
+```
+
+## GraphBroadcaster
+
+Manages WebSocket connections for broadcasting new graph edges discovered during investigations. **Single global instance** for all clients.
+
+### Implementation
+
+```typescript
+// apps/worker/src/durable-objects/graph-broadcaster.ts:24
+export class GraphBroadcaster extends DurableObject {
+  private sessions: Set<WebSocket> = new Set();
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    // WebSocket upgrade request
+    if (request.headers.get("Upgrade") === "websocket") {
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+
+      this.ctx.acceptWebSocket(server);
+      this.sessions.add(server);
+
+      // Handle ping/pong keepalive
+      server.addEventListener("message", (event) => {
+        const message = JSON.parse(event.data as string);
+        if (message.type === "ping") {
+          server.send(JSON.stringify({ type: "pong" }));
+        }
+      });
+
+      // Clean up on close
+      server.addEventListener("close", () => {
+        this.sessions.delete(server);
+      });
+
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
+    // Broadcast endpoint (called by workflow)
+    if (url.pathname === "/broadcast" && request.method === "POST") {
+      const edge = await request.json() as GraphEdgeUpdate;
+      this.broadcast(edge);
+      return Response.json({ success: true, clients: this.sessions.size });
+    }
+
+    return new Response("Not Found", { status: 404 });
+  }
+}
+```
+
+### Edge Update Interface
+
+```typescript
+// apps/worker/src/durable-objects/graph-broadcaster.ts:3
+export interface GraphEdgeUpdate {
+  source: string;           // Source node name
+  target: string;           // Target node name
+  confidence: number;       // Edge confidence (0-100)
+  evidenceUrl?: string;     // HD image URL
+  thumbnailUrl?: string;    // Thumbnail URL
+  contextUrl?: string;      // Source page URL
+}
+```
+
+### Broadcasting Updates
+
+```typescript
+// apps/worker/src/durable-objects/graph-broadcaster.ts:93
+private broadcast(edge: GraphEdgeUpdate): void {
+  const message = JSON.stringify({
+    type: "edge_update",
+    data: edge,
+  });
+
+  const deadSessions: WebSocket[] = [];
+
+  for (const ws of this.sessions) {
+    try {
+      ws.send(message);
+    } catch {
+      // Connection is dead, mark for removal
+      deadSessions.push(ws);
+    }
+  }
+
+  // Clean up dead sessions
+  for (const ws of deadSessions) {
+    this.sessions.delete(ws);
+  }
+}
+```
+
+### Usage from Workflow
+
+Workflows broadcast new edges after persisting to D1:
+
+```typescript
+// apps/worker/src/workflows/investigation.ts:166
+private async broadcastEdge(edge: GraphEdgeUpdate): Promise<void> {
+  const id = this.env.GRAPH_BROADCASTER.idFromName("global");
+  const stub = this.env.GRAPH_BROADCASTER.get(id);
+  await stub.fetch(new Request("https://internal/broadcast", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(edge),
+  }));
+}
+
+// After verifying an edge:
+await upsertEdge(this.env.GRAPH_DB, personA, personB, confidence, ...);
+await this.broadcastEdge({
+  source: personA,
+  target: personB,
+  confidence: edgeConfidence,
+  evidenceUrl: bestEvidence.imageUrl,
+  thumbnailUrl: bestEvidence.thumbnailUrl,
+  contextUrl: bestEvidence.contextUrl,
+});
+```
+
+### Client Usage
+
+```typescript
+// Connect to global graph update stream
+const ws = new WebSocket('wss://api.example.com/api/graph/ws');
+
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  
+  if (message.type === 'edge_update') {
+    const edge = message.data;
+    console.log('New edge discovered:', edge);
+    // Update graph visualization in real-time
+    addEdgeToGraph(edge.source, edge.target, edge.confidence);
+  }
+};
+
+// Send keepalive pings
+setInterval(() => {
+  ws.send(JSON.stringify({ type: 'ping' }));
+}, 30000);
+```
+
+## Hibernation Support
+
+Both Durable Objects support WebSocket hibernation:
+
+- **Durable Objects can "sleep"** while WebSocket connections remain open
+- **Automatic wake-up** when messages arrive
+- **Reduced resource usage** for idle connections
+- **Handlers called on wake**: `webSocketMessage`, `webSocketClose`, `webSocketError`
+
+```typescript
+// Hibernation handlers are called when DO wakes from sleep
+async webSocketMessage(ws: WebSocket, message: string): Promise<void> {
+  // DO just woke up to handle this message
+  const parsed = JSON.parse(message);
+  if (parsed.type === "ping") {
+    ws.send(JSON.stringify({ type: "pong" }));
+  }
+}
+```
+
+## Architecture Role
+
+Durable Objects serve as the **real-time streaming layer**:
+
+1. **WebSocket Coordination**: Manages multiple concurrent client connections
+2. **Event Distribution**: Broadcasts events to all connected clients
+3. **State Persistence**: Buffers events for late-joining clients
+4. **Resource Efficiency**: Hibernation reduces memory/CPU usage
+5. **Isolation**: Per-investigation instances prevent cross-contamination
+6. **Cleanup**: Automatic resource cleanup via alarms
+
+## Why Durable Objects?
+
+Durable Objects are ideal for Connected's real-time needs:
+
+- **Single Coordination Point**: Each DO instance coordinates all WebSocket connections for that resource
+- **No Subrequest Limits**: WebSocket messages don't count against worker subrequest limits
+- **Persistent State**: Events buffered in DO storage survive hibernation
+- **Global Uniqueness**: `idFromName()` ensures single instance per investigation
+- **Built-in Hibernation**: Efficient resource usage for idle connections
+
+## Comparison: Investigation vs Graph Broadcaster
+
+| Feature | InvestigationEventsBroadcaster | GraphBroadcaster |
+|---------|-------------------------------|------------------|
+| **Instances** | One per investigation (runId) | Single global instance |
+| **Purpose** | Stream investigation progress | Broadcast new edges |
+| **Event Buffering** | Yes (1 hour TTL) | No |
+| **Replay Support** | Yes (cursor-based) | No |
+| **Cleanup** | Automatic after 1 hour | Never (global) |
+| **Hibernation** | Yes | Yes |
+| **Storage** | Events stored in DO storage | Sessions in memory |
+
+## Related Services
+
+- [Workers](/integrations/workers) - WebSocket upgrade routing
+- [Workflows](/integrations/workflows) - Event emission source
+- [D1](/integrations/d1) - Persistent graph storage
+- [KV](/integrations/kv) - Backup event storage

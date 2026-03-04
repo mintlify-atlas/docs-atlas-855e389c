@@ -1,0 +1,195 @@
+---
+title: Architecture Overview
+description: High-level system architecture and technology stack of the Connected investigation platform
+---
+
+Connected is a serverless AI-powered investigation system built entirely on Cloudflare's edge computing platform. It finds verified visual connections between public figures using real-time image search, celebrity face verification, and AI-guided reasoning.
+
+## System Architecture
+
+The platform uses a distributed, event-driven architecture that runs at the edge:
+
+```mermaid
+graph TB
+    User["User<br/>Chat Interface"]
+    UI["Next.js Frontend<br/>Cloudflare Pages"]
+    Worker["Cloudflare Worker<br/>Orchestrator"]
+
+    KV["Cloudflare KV<br/>Session State"]
+    DO["Durable Objects<br/>Event Streaming"]
+
+    PSE["Google PSE<br/>Image Search"]
+    REK["AWS Rekognition<br/>Face Verification"]
+    GEMINI["Gemini Flash<br/>Visual Filter + Planning"]
+
+    GRAPH["Sigma.js Graph<br/>Visualization"]
+
+    User -->|Type query| UI
+    UI -->|SSE/WebSocket| DO
+    UI -->|fetch graph| Worker
+
+    Worker -->|orchestrate| KV
+    Worker -->|emit events| DO
+    DO -->|stream to| UI
+
+    Worker -->|search images| PSE
+    Worker -->|detect faces| REK
+    Worker -->|plan + filter| GEMINI
+
+    UI -->|render| GRAPH
+```
+
+## Core Components
+
+### Frontend Layer
+- **Next.js 15 Application**: Server-rendered React app hosted on Cloudflare Pages
+- **Real-time Chat UI**: Streaming investigation progress via WebSocket/SSE
+- **Sigma.js Graph Visualization**: Interactive force-directed graph of verified connections
+- **Radix UI Components**: Accessible, customizable UI primitives
+
+### Backend Layer
+- **Cloudflare Workers**: Edge-native serverless API handling all HTTP requests
+- **Cloudflare Workflows**: Durable execution engine for multi-step investigation state machine
+- **Durable Objects**: Stateful isolates for WebSocket broadcasting and event management
+- **KV Storage**: Global key-value store for rate limiting and session caching
+- **D1 Database**: Persistent SQLite storage for the social graph
+
+### External Services
+- **Google Programmable Search Engine**: Finding candidate images of public figures
+- **AWS Rekognition**: Celebrity face detection with confidence scoring
+- **Gemini 2.0 Flash**: Visual scene validation and strategic bridge candidate selection
+
+## Key Design Principles
+
+### 1. Edge-First Architecture
+All computation happens at Cloudflare's edge, within 50ms of users globally:
+- Sub-50ms cold starts for Workers
+- Automatic geographic distribution
+- No infrastructure management
+
+### 2. Evidence-Based Verification
+Every connection requires visual proof:
+- ≥80% confidence threshold for face detection
+- Real scenes only (collages filtered via AI)
+- Multiple evidence sources per edge
+
+### 3. Durable Execution
+Investigations can run for minutes without timing out:
+- Workflows handle retries automatically
+- State persists across subrequest limits
+- Budget tracking prevents infinite loops
+
+### 4. Real-Time Streaming
+Users see progress as it happens:
+- WebSocket connections via Durable Objects
+- Event buffering for late joiners
+- Hibernatable connections for efficiency
+
+## Data Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Pages as Next.js Frontend
+    participant Worker as Cloudflare Worker
+    participant WF as Workflow Engine
+    participant DO as Durable Object
+    participant External as External APIs
+
+    User->>Pages: Submit query (A → B)
+    Pages->>Worker: POST /api/chat/query
+    Worker->>WF: Create investigation workflow
+    Worker->>Pages: Return runId
+    Pages->>DO: Connect WebSocket
+    
+    loop Investigation Steps
+        WF->>External: Search images
+        WF->>External: Detect faces
+        WF->>External: Validate scene
+        WF->>DO: Emit event
+        DO->>Pages: Stream event
+        Pages->>User: Update UI
+    end
+    
+    WF->>DO: Emit final result
+    DO->>Pages: Complete stream
+    Pages->>User: Show verified path
+```
+
+## Technology Stack
+
+| Layer | Technology | Purpose |
+|-------|------------|----------|
+| **Frontend** | Next.js 15 + React 18 | Server-rendered UI with streaming |
+| **Styling** | Tailwind CSS 4 + Radix UI | Utility-first styling + accessible components |
+| **Graph** | Sigma.js + Graphology | Force-directed network visualization |
+| **Backend** | Cloudflare Workers | Edge-native serverless compute |
+| **Orchestration** | Cloudflare Workflows | Durable state machine execution |
+| **Real-time** | Durable Objects | Stateful WebSocket broadcasting |
+| **State** | KV + D1 | Session caching + graph persistence |
+| **Image Search** | Google PSE | Public figure photo discovery |
+| **Face Detection** | AWS Rekognition | Celebrity identification (80%+ confidence) |
+| **Visual AI** | Gemini 2.0 Flash | Scene validation + strategic planning |
+| **Package Manager** | pnpm | Fast, disk-efficient monorepo management |
+
+## Performance Characteristics
+
+- **Cold Start**: &lt;50ms for Worker initialization
+- **API Latency**: &lt;100ms for simple queries at edge
+- **Investigation Time**: 30 seconds - 5 minutes (depends on path complexity)
+- **Concurrent Users**: Unlimited (auto-scaling at edge)
+- **Cost Model**: Pay-per-request (no idle costs)
+
+## Security & Rate Limiting
+
+- **Rate Limits**: 50 investigations per IP per day
+- **CORS**: Configurable allowed origins
+- **IP Whitelisting**: Bypass limits for trusted IPs
+- **No Authentication**: Public demo (auth can be added)
+
+## Deployment Model
+
+```mermaid
+graph LR
+    subgraph "Cloudflare Edge"
+        Pages["Pages<br/>Next.js Frontend"]
+        Workers["Workers<br/>API & Orchestration"]
+        Workflows["Workflows<br/>State Machine"]
+        DO["Durable Objects<br/>WebSocket Hub"]
+        KV["KV<br/>Session Store"]
+        D1["D1<br/>Graph Database"]
+    end
+
+    User --> Pages
+    Pages --> Workers
+    Workers --> Workflows
+    Workflows --> DO
+    Workflows --> KV
+    Workers --> D1
+    DO -->|Real-time events| Pages
+```
+
+### Why Cloudflare?
+
+- **Zero infrastructure management**: No servers to provision or scale
+- **Global by default**: Code runs in 300+ locations worldwide
+- **Cost efficient**: Pay only for what you use, generous free tier
+- **Integrated ecosystem**: Workers, KV, Durable Objects, Workflows, and D1 work seamlessly together
+- **Instant deployments**: Git push → production in seconds
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Cloudflare Stack" icon="cloud" href="/architecture/cloudflare-stack">
+    Deep dive into Workers, Workflows, Durable Objects, KV, and D1
+  </Card>
+  <Card title="Monorepo Structure" icon="folder-tree" href="/architecture/monorepo-structure">
+    Understand the workspace organization and package dependencies
+  </Card>
+  <Card title="State Machine" icon="diagram-project" href="/architecture/state-machine">
+    Learn how the investigation workflow operates
+  </Card>
+  <Card title="Data Flow" icon="arrow-right-arrow-left" href="/architecture/data-flow">
+    Trace how data moves from query to verified result
+  </Card>
+</CardGroup>

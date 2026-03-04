@@ -1,0 +1,421 @@
+---
+title: Cloudflare Workflows
+description: Durable state machine for multi-step investigation execution
+---
+
+## Overview
+
+Cloudflare Workflows power the investigation engine in Connected. Each investigation runs as a durable workflow instance that can survive worker restarts, handle long-running operations, and maintain state across multiple steps.
+
+## Configuration
+
+Workflows are configured in `wrangler.toml`:
+
+```toml
+[[workflows]]
+name = "investigation"
+binding = "INVESTIGATION_WORKFLOW"
+class_name = "InvestigationWorkflow"
+```
+
+## Workflow Implementation
+
+The `InvestigationWorkflow` class extends `WorkflowEntrypoint`:
+
+```typescript
+// apps/worker/src/workflows/investigation.ts:162
+export class InvestigationWorkflow extends WorkflowEntrypoint<Env, Params> {
+  async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
+    const { personA, personB, runId } = event.payload;
+    // Investigation logic...
+  }
+}
+```
+
+### Input Parameters
+
+```typescript
+interface Params {
+  personA: string;  // Starting person
+  personB: string;  // Target person
+  runId: string;    // Unique run identifier for event tracking
+}
+```
+
+## Creating a Workflow Instance
+
+Workflows are triggered from the Worker API:
+
+```typescript
+// apps/worker/src/index.ts:236
+const runId = crypto.randomUUID();
+
+const instance = await env.INVESTIGATION_WORKFLOW.create({
+  params: { personA, personB, runId }
+});
+
+return new Response(JSON.stringify({
+  id: instance.id,
+  runId,
+  status: "started",
+  personA,
+  personB,
+}));
+```
+
+## Workflow Steps
+
+The investigation follows a 4-step process:
+
+### Step 1: Direct Connection Check
+
+Attempts to find direct visual evidence of both people together:
+
+```typescript
+// apps/worker/src/workflows/investigation.ts:321
+await startStep("direct_check", 
+  `Checking for direct connection: ${personA} ↔ ${personB}`);
+
+const directEdge = await step.do("direct-attempt", async () => {
+  const query = directQuery(personA, personB);
+  const searchRes = await searchImages({ query });
+  const images = searchRes.results.slice(0, DEFAULT_CONFIG.imagesPerQuery);
+  
+  for (const img of images) {
+    const visual = await verifyCopresence({ imageUrl: img.imageUrl });
+    if (!visual.isValidScene) continue;
+    
+    const analysis = await detectCelebrities({ imageUrl: img.imageUrl });
+    if (isValidEvidence(analysis.celebrities, personA, personB, threshold)) {
+      return createVerifiedEdge(personA, personB, [record]);
+    }
+  }
+  return null;
+});
+
+if (directEdge) {
+  // Success! 0-hop connection found
+  await completeStep("direct_check", true, 
+    `Direct connection verified with ${directEdge.edgeConfidence}% confidence`);
+  return finalizeSuccess(state, directEdge);
+}
+```
+
+### Step 2: Finding Bridge Candidates
+
+When no direct connection exists, uses AI to suggest potential bridge people:
+
+```typescript
+// apps/worker/src/workflows/investigation.ts:515
+await startStep("find_bridges", `Finding bridge candidates from ${personA}`);
+
+const suggestedBridges = await step.do("suggest-bridges", async () => {
+  return await planner.suggestBridgeCandidates(personA, personB);
+});
+
+await updateStep(`AI suggested ${suggestedBridges.length} bridge candidates`, {
+  candidates: suggestedBridges.map((c) => ({
+    name: c.name,
+    score: c.confidence,
+    reasoning: c.reasoning,
+  })),
+});
+```
+
+### Step 3: Verify Bridge Connection
+
+Verifies visual evidence between current frontier and bridge candidate:
+
+```typescript
+// apps/worker/src/workflows/investigation.ts:1150
+await startStep("verify_bridge", 
+  `Verifying: ${currentFrontier} ↔ ${candidateName}`);
+
+const edgeToCandidate = await step.do(
+  `verify-${dfsStack.length}-${candidateName}`, 
+  async () => {
+    const queries = verificationQueries(currentFrontier, candidateName);
+    const evidence = [];
+    
+    for (const q of queries) {
+      const searchRes = await searchImages({ query: q });
+      for (const img of searchRes.results) {
+        const visual = await verifyCopresence({ imageUrl: img.imageUrl });
+        if (!visual.isValidScene) continue;
+        
+        const analysis = await detectCelebrities({ imageUrl: img.imageUrl });
+        if (isValidEvidence(analysis.celebrities, currentFrontier, 
+                           candidateName, threshold)) {
+          evidence.push(createEvidenceRecord(img, analysis, 
+                                            currentFrontier, candidateName));
+          break;
+        }
+      }
+      if (evidence.length >= 1) break;
+    }
+    
+    return evidence.length > 0 
+      ? createVerifiedEdge(currentFrontier, candidateName, evidence) 
+      : null;
+  }
+);
+```
+
+### Step 4: Connect to Target
+
+Attempts to connect the bridge candidate to the target person:
+
+```typescript
+// apps/worker/src/workflows/investigation.ts:845
+await startStep("connect_target", 
+  `Connecting: ${candidateName} ↔ ${personB}`);
+
+const bridgeEdge = await step.do(
+  `bridge-${dfsStack.length}-${candidateName}`, 
+  async () => {
+    const queries = bridgeQueries(candidateName, personB);
+    // Similar verification logic...
+    return evidence.length > 0 
+      ? createVerifiedEdge(candidateName, personB, evidence) 
+      : null;
+  }
+);
+
+if (bridgeEdge) {
+  // Success! Path found
+  state.verifiedEdges.push(bridgeEdge);
+  state.path.push(personB);
+  return finalizeSuccess(state);
+}
+```
+
+## Durable Step Execution
+
+The `step.do()` function ensures durable execution:
+
+```typescript
+// Each step.do() call:
+// 1. Persists state before execution
+// 2. Executes the operation
+// 3. Stores the result
+// 4. Can be retried if worker crashes
+
+const result = await step.do("unique-step-id", async () => {
+  // This code will only run once per workflow instance
+  // Even if the worker restarts, the result is cached
+  return await expensiveOperation();
+});
+```
+
+## Event Broadcasting
+
+Workflows emit real-time events via Durable Objects:
+
+```typescript
+// apps/worker/src/workflows/investigation.ts:55
+function createEventEmitter(env: Env, runId: string) {
+  let eventIndex = 0;
+  
+  const emitRaw = async (
+    type: InvestigationEventType,
+    message: string,
+    data?: InvestigationEvent["data"]
+  ): Promise<void> => {
+    const eventId = `${runId}:${String(eventIndex).padStart(6, "0")}`;
+    
+    const event: InvestigationEvent = {
+      type,
+      runId,
+      timestamp: new Date().toISOString(),
+      message,
+      data: { ...data, eventId },
+    };
+    
+    // Emit to Durable Object for WebSocket streaming
+    const doId = env.INVESTIGATION_EVENTS_BROADCASTER.idFromName(runId);
+    const stub = env.INVESTIGATION_EVENTS_BROADCASTER.get(doId);
+    await stub.fetch(new Request("https://internal/emit", {
+      method: "POST",
+      body: JSON.stringify(event),
+    }));
+    
+    eventIndex++;
+  };
+  
+  return {
+    emit: emitRaw,
+    startStep: async (stepId, title, data) => { /* ... */ },
+    updateStep: async (message, data) => { /* ... */ },
+    completeStep: async (stepId, success, message, data) => { /* ... */ },
+  };
+}
+```
+
+## Event Types
+
+The workflow emits various event types during execution:
+
+- **`step_start`**: New step begins (e.g., "Checking for direct connection")
+- **`step_update`**: Progress update within a step
+- **`step_complete`**: Step finishes (success or failure)
+- **`image_result`**: Individual image processing result
+- **`evidence`**: Valid evidence discovered
+- **`path_update`**: Current path updated
+- **`thinking`**: AI reasoning/planning status
+- **`backtrack`**: DFS backtracking event
+- **`status`**: General status update
+- **`final`**: Investigation complete with path
+- **`no_path`**: Investigation complete without path
+- **`error`**: Fatal error occurred
+
+## Search Algorithm
+
+The workflow uses **Depth-First Search (DFS)** with backtracking:
+
+```typescript
+// apps/worker/src/workflows/investigation.ts:536
+interface DFSStackFrame {
+  frontier: string;         // Current person being explored
+  candidates: string[];     // List of bridge candidates
+  candidateIndex: number;   // Which candidate we're on
+  edge: VerifiedEdge | null;  // Edge that got us here
+}
+
+const dfsStack: DFSStackFrame[] = [];
+const globalTriedCandidates = new Set<string>([personA.toLowerCase()]);
+
+// Backtrack when a path doesn't lead to target
+const backtrack = async (): Promise<boolean> => {
+  while (dfsStack.length > 0) {
+    const poppedFrame = dfsStack.pop()!;
+    
+    state.path.pop();
+    state.verifiedEdges.pop();
+    state.hopDepth = dfsStack.length;
+    
+    // Check for untried candidates at this level
+    const remainingCandidates = poppedFrame.candidates
+      .slice(poppedFrame.candidateIndex + 1)
+      .filter(name => !globalTriedCandidates.has(name.toLowerCase()));
+    
+    if (remainingCandidates.length > 0) {
+      return true;  // Try these candidates
+    }
+  }
+  return false;  // All paths exhausted
+};
+```
+
+## Budget Management
+
+Workflows enforce resource limits:
+
+```typescript
+// apps/worker/src/workflows/investigation.ts:282
+let state: InvestigationState = {
+  personA,
+  personB,
+  frontier: personA,
+  hopDepth: 0,
+  path: [personA],
+  verifiedEdges: [],
+  failedCandidates: [],
+  budgets: {
+    maxSteps: 50,              // Max candidates to try
+    stepsUsed: 0,
+    maxSubrequests: 1000,      // Max API calls
+    subrequestsUsed: 0,
+  },
+  status: "running",
+};
+
+const checkBudget = () => {
+  return (
+    state.budgets.stepsUsed < state.budgets.maxSteps &&
+    state.budgets.subrequestsUsed < state.budgets.maxSubrequests
+  );
+};
+
+const trackSubrequest = (count: number = 1) => {
+  state.budgets.subrequestsUsed += count;
+};
+```
+
+## Graph Persistence
+
+Discovered edges are persisted to D1 and broadcast via Durable Objects:
+
+```typescript
+// apps/worker/src/workflows/investigation.ts:166
+private async broadcastEdge(edge: GraphEdgeUpdate): Promise<void> {
+  const id = this.env.GRAPH_BROADCASTER.idFromName("global");
+  const stub = this.env.GRAPH_BROADCASTER.get(id);
+  await stub.fetch(new Request("https://internal/broadcast", {
+    method: "POST",
+    body: JSON.stringify(edge),
+  }));
+}
+
+// After verifying an edge:
+await upsertEdge(
+  this.env.GRAPH_DB,
+  personA,
+  personB,
+  edge.edgeConfidence,
+  edge.bestEvidence.imageUrl,
+  edge.bestEvidence.thumbnailUrl,
+  edge.bestEvidence.contextUrl
+);
+
+await this.broadcastEdge({
+  source: personA,
+  target: personB,
+  confidence: edge.edgeConfidence,
+  evidenceUrl: edge.bestEvidence.imageUrl,
+  thumbnailUrl: edge.bestEvidence.thumbnailUrl,
+  contextUrl: edge.bestEvidence.contextUrl,
+});
+```
+
+## Workflow Status
+
+Check workflow status via the Worker API:
+
+```typescript
+// GET /api/chat/status/:instanceId
+const instance = await env.INVESTIGATION_WORKFLOW.get(instanceId);
+const status = await instance.status();
+
+return Response.json({
+  id: instanceId,
+  status: status.status,  // "running" | "complete" | "error"
+  error: status.error,
+  output: status.output
+});
+```
+
+## Architecture Role
+
+Workflows serve as the **investigation engine** in Connected:
+
+1. **Durable Execution**: Survives worker restarts and failures
+2. **State Management**: Maintains investigation state across steps
+3. **Multi-Hop Search**: Implements DFS with AI-guided candidate selection
+4. **Evidence Collection**: Coordinates image search and celebrity detection
+5. **Real-time Events**: Broadcasts progress via Durable Objects
+6. **Graph Building**: Persists discovered relationships to D1
+
+## Benefits of Workflows
+
+- **Durability**: State persists across worker restarts
+- **Simplicity**: Write sequential code that looks synchronous
+- **Reliability**: Automatic retries and error handling
+- **Scalability**: Each investigation runs independently
+- **Observability**: Built-in logging and tracing
+
+## Related Services
+
+- [Workers](/integrations/workers) - API orchestration
+- [Durable Objects](/integrations/durable-objects) - Event broadcasting
+- [D1](/integrations/d1) - Graph persistence
+- [KV](/integrations/kv) - Event storage (backup)

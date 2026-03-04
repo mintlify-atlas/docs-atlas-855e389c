@@ -1,0 +1,505 @@
+---
+title: Cloudflare KV
+description: Key-value storage for session state, rate limiting, and event persistence
+---
+
+## Overview
+
+Cloudflare KV (Key-Value storage) provides eventually-consistent, global storage for Connected. Two KV namespaces serve different purposes:
+
+1. **`INVESTIGATION_EVENTS`**: Investigation event storage (backup for SSE endpoint)
+2. **`RATE_LIMIT`**: Rate limiting counters per IP address
+
+## Configuration
+
+KV namespaces are configured in `wrangler.toml`:
+
+```toml
+# KV namespace for storing investigation events (for streaming to UI)
+[[kv_namespaces]]
+binding = "INVESTIGATION_EVENTS"
+id = "58df6c4dedab42529ecf698fcd812220"
+preview_id = "58df6c4dedab42529ecf698fcd812220"
+
+# KV namespace for rate limiting (50 searches per day per IP)
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "048330686cfa4232b4b503a9119a3192"
+preview_id = "048330686cfa4232b4b503a9119a3192"
+```
+
+## RATE_LIMIT Namespace
+
+Stores rate limiting counters for API usage enforcement.
+
+### Rate Limit Configuration
+
+```typescript
+// apps/worker/src/index.ts:18
+const RATE_LIMIT_MAX = 50;                    // 50 searches per day
+const RATE_LIMIT_WINDOW = 24 * 60 * 60;       // 24 hours in seconds
+```
+
+### Key Pattern
+
+```
+ratelimit:{ip}
+```
+
+**Example keys:**
+- `ratelimit:192.168.1.100`
+- `ratelimit:203.0.113.45`
+
+### Value Structure
+
+```typescript
+{
+  count: number;      // Number of requests made
+  resetAt: number;    // Unix timestamp when limit resets
+}
+```
+
+### Rate Limit Implementation
+
+```typescript
+// apps/worker/src/index.ts:68
+async function checkRateLimit(
+  env: Env,
+  ip: string
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  // Whitelisted IPs bypass rate limiting
+  if (isWhitelisted(env, ip)) {
+    return { allowed: true, remaining: 999999, resetAt: 0 };
+  }
+
+  const key = `ratelimit:${ip}`;
+  const now = Math.floor(Date.now() / 1000);
+
+  const data = await env.RATE_LIMIT.get(key);
+
+  if (!data) {
+    // First request - initialize counter
+    const resetAt = now + RATE_LIMIT_WINDOW;
+    await env.RATE_LIMIT.put(key, JSON.stringify({ count: 1, resetAt }), {
+      expirationTtl: RATE_LIMIT_WINDOW,
+    });
+    return { allowed: true, remaining: RATE_LIMIT_MAX - 1, resetAt };
+  }
+
+  const { count, resetAt } = JSON.parse(data);
+
+  if (now >= resetAt) {
+    // Window expired - reset counter
+    const newResetAt = now + RATE_LIMIT_WINDOW;
+    await env.RATE_LIMIT.put(key, JSON.stringify({ count: 1, resetAt: newResetAt }), {
+      expirationTtl: RATE_LIMIT_WINDOW,
+    });
+    return { allowed: true, remaining: RATE_LIMIT_MAX - 1, resetAt: newResetAt };
+  }
+
+  if (count >= RATE_LIMIT_MAX) {
+    // Rate limit exceeded
+    return { allowed: false, remaining: 0, resetAt };
+  }
+
+  // Increment counter
+  await env.RATE_LIMIT.put(key, JSON.stringify({ count: count + 1, resetAt }), {
+    expirationTtl: resetAt - now,
+  });
+
+  return { allowed: true, remaining: RATE_LIMIT_MAX - count - 1, resetAt };
+}
+```
+
+### IP Whitelisting
+
+Certain IPs can bypass rate limits:
+
+```typescript
+// apps/worker/src/index.ts:52
+function isWhitelisted(env: Env, ip: string): boolean {
+  if (env.WHITELISTED_IPS) {
+    const envWhitelist = env.WHITELISTED_IPS.split(",").map((i: string) => i.trim());
+    return envWhitelist.includes(ip);
+  }
+  return false;
+}
+```
+
+**Environment variable:**
+```bash
+WHITELISTED_IPS="192.168.1.100,203.0.113.45"
+```
+
+### Client IP Detection
+
+```typescript
+// apps/worker/src/index.ts:118
+function getClientIP(request: Request): string {
+  return request.headers.get("CF-Connecting-IP") ||
+         request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
+         "unknown";
+}
+```
+
+### Rate Limit Response Headers
+
+API responses include rate limit headers:
+
+```typescript
+// apps/worker/src/index.ts:248
+return new Response(JSON.stringify({ ... }), {
+  headers: {
+    "Content-Type": "application/json",
+    "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+    "X-RateLimit-Remaining": String(rateLimit.remaining),
+    "X-RateLimit-Reset": String(rateLimit.resetAt),
+    ...corsHeaders
+  }
+});
+```
+
+### Rate Limit Exceeded Response
+
+```typescript
+// apps/worker/src/index.ts:207
+if (!rateLimit.allowed) {
+  const resetDate = new Date(rateLimit.resetAt * 1000);
+  return new Response(JSON.stringify({
+    error: "Rate limit exceeded. You can perform 50 searches per day.",
+    remaining: 0,
+    resetAt: resetDate.toISOString(),
+  }), {
+    status: 429,
+    headers: {
+      "Content-Type": "application/json",
+      "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+      "X-RateLimit-Remaining": "0",
+      "X-RateLimit-Reset": String(rateLimit.resetAt),
+      ...corsHeaders
+    }
+  });
+}
+```
+
+## INVESTIGATION_EVENTS Namespace
+
+Stores investigation events for the Server-Sent Events (SSE) streaming endpoint. **Note**: Primary event streaming uses Durable Objects; KV is a backup/fallback.
+
+### Key Patterns
+
+```
+{runId}:count              # Total event count for a run
+{runId}:{index}            # Individual event (zero-padded index)
+```
+
+**Example keys:**
+- `550e8400-e29b-41d4-a716-446655440000:count`
+- `550e8400-e29b-41d4-a716-446655440000:000000`
+- `550e8400-e29b-41d4-a716-446655440000:000001`
+- `550e8400-e29b-41d4-a716-446655440000:000042`
+
+### Value Structure
+
+**Count key:**
+```
+"42"  // String representation of total event count
+```
+
+**Event key:**
+```typescript
+{
+  type: InvestigationEventType;
+  runId: string;
+  timestamp: string;  // ISO 8601 timestamp
+  message: string;
+  data?: {
+    eventId?: string;
+    stepId?: string;
+    stepNumber?: number;
+    // ... event-specific data
+  };
+}
+```
+
+### Event Storage Implementation
+
+```typescript
+// apps/worker/src/workflows/investigation.ts:47
+const EVENT_INDEX_PADDING = 6;    // Supports up to 999,999 events per run
+const EVENT_TTL_SECONDS = 3600;   // 1 hour expiration
+
+function createEventEmitter(
+  env: Env,
+  runId: string,
+  options: { persistToKV?: boolean } = { persistToKV: false }
+) {
+  let eventIndex = 0;
+
+  const emitRaw = async (
+    type: InvestigationEventType,
+    message: string,
+    data?: InvestigationEvent["data"]
+  ): Promise<void> => {
+    const eventId = `${runId}:${String(eventIndex).padStart(EVENT_INDEX_PADDING, "0")}`;
+
+    const event: InvestigationEvent = {
+      type,
+      runId,
+      timestamp: new Date().toISOString(),
+      message,
+      data: { ...data, eventId },
+    };
+
+    const nextIndex = eventIndex + 1;
+
+    // Primary: Emit to Durable Object
+    const doId = env.INVESTIGATION_EVENTS_BROADCASTER.idFromName(runId);
+    const stub = env.INVESTIGATION_EVENTS_BROADCASTER.get(doId);
+    await stub.fetch(new Request("https://internal/emit", {
+      method: "POST",
+      body: JSON.stringify(event),
+    }));
+
+    // Secondary (optional): Persist to KV for debugging/fallback SSE
+    if (options.persistToKV) {
+      const key = eventId;
+      await env.INVESTIGATION_EVENTS.put(key, JSON.stringify(event), {
+        expirationTtl: EVENT_TTL_SECONDS,
+      });
+      await env.INVESTIGATION_EVENTS.put(`${runId}:count`, String(nextIndex), {
+        expirationTtl: EVENT_TTL_SECONDS,
+      });
+    }
+
+    eventIndex = nextIndex;
+  };
+
+  return { emit: emitRaw, /* ... */ };
+}
+```
+
+### SSE Streaming from KV
+
+The worker provides an SSE endpoint that reads events from KV:
+
+```typescript
+// apps/worker/src/index.ts:267
+if (url.pathname.startsWith("/api/chat/stream/") && request.method === "GET") {
+  const runId = url.pathname.split("/").pop();
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      let cursor = 0;
+      let isComplete = false;
+
+      while (!isComplete) {
+        // Get total event count
+        const countStr = await env.INVESTIGATION_EVENTS.get(`${runId}:count`);
+        const count = countStr ? parseInt(countStr, 10) : 0;
+
+        // Stream new events
+        for (let i = cursor; i < count; i++) {
+          const key = `${runId}:${String(i).padStart(6, "0")}`;
+          const eventJson = await env.INVESTIGATION_EVENTS.get(key);
+          if (eventJson) {
+            const event = JSON.parse(eventJson) as InvestigationEvent;
+            const data = `data: ${JSON.stringify(event)}\n\n`;
+            controller.enqueue(encoder.encode(data));
+
+            // Check for completion
+            if (event.type === "final" || event.type === "no_path" || event.type === "error") {
+              isComplete = true;
+            }
+          }
+        }
+
+        cursor = count;
+
+        // Poll every 100ms
+        if (!isComplete) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+
+      controller.close();
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    }
+  });
+}
+```
+
+### Polling Endpoint
+
+Clients can also poll for events:
+
+```typescript
+// apps/worker/src/index.ts:367
+if (url.pathname.startsWith("/api/chat/events/") && request.method === "GET") {
+  const runId = url.pathname.split("/").pop();
+  const cursorParam = url.searchParams.get("cursor");
+  const cursor = cursorParam ? parseInt(cursorParam, 10) : 0;
+
+  // Get total event count
+  const countStr = await env.INVESTIGATION_EVENTS.get(`${runId}:count`);
+  const count = countStr ? parseInt(countStr, 10) : 0;
+
+  // Fetch all events after cursor
+  const events: InvestigationEvent[] = [];
+  for (let i = cursor; i < count; i++) {
+    const key = `${runId}:${String(i).padStart(6, "0")}`;
+    const eventJson = await env.INVESTIGATION_EVENTS.get(key);
+    if (eventJson) {
+      events.push(JSON.parse(eventJson));
+    }
+  }
+
+  // Check if investigation is complete
+  const lastEvent = events[events.length - 1];
+  const complete = lastEvent?.type === "final" || 
+                   lastEvent?.type === "no_path" || 
+                   lastEvent?.type === "error";
+
+  return Response.json({
+    runId,
+    events,
+    complete,
+    cursor: String(count),
+  });
+}
+```
+
+## KV Characteristics
+
+### Performance
+
+- **Read latency**: < 50ms globally
+- **Write latency**: < 1s propagation time
+- **Consistency**: Eventually consistent (reads may be stale)
+- **Throughput**: Unlimited reads, 1 write/sec per key recommended
+
+### Storage Limits
+
+- **Key size**: Up to 512 bytes
+- **Value size**: Up to 25 MiB
+- **Keys per namespace**: Unlimited
+- **Total storage**: 1 GB free tier (more with paid plan)
+
+### TTL and Expiration
+
+```typescript
+// Expiration via TTL (seconds from now)
+await env.INVESTIGATION_EVENTS.put(key, value, {
+  expirationTtl: 3600  // Expire in 1 hour
+});
+
+// Expiration via timestamp
+await env.RATE_LIMIT.put(key, value, {
+  expiration: Math.floor(Date.now() / 1000) + 86400  // Expire at specific time
+});
+```
+
+## Best Practices
+
+### 1. Use Appropriate TTLs
+
+Always set expiration for temporary data:
+
+```typescript
+// Good: Events auto-expire after 1 hour
+await env.INVESTIGATION_EVENTS.put(key, event, {
+  expirationTtl: 3600
+});
+
+// Bad: Data never expires, wastes storage
+await env.INVESTIGATION_EVENTS.put(key, event);
+```
+
+### 2. Handle Eventually Consistent Reads
+
+```typescript
+// May return stale data if written very recently
+const value = await env.RATE_LIMIT.get(key);
+
+// For critical consistency, use Durable Objects instead
+```
+
+### 3. Minimize Write Frequency
+
+```typescript
+// Good: Single write with all data
+await env.INVESTIGATION_EVENTS.put(key, JSON.stringify({
+  count: count + 1,
+  resetAt: resetAt
+}));
+
+// Bad: Multiple rapid writes to same key
+await env.RATE_LIMIT.put(key, count);
+await env.RATE_LIMIT.put(key, count + 1);
+await env.RATE_LIMIT.put(key, count + 2);
+```
+
+### 4. Use Metadata for Small Data
+
+```typescript
+// Store small metadata without reading value
+await env.INVESTIGATION_EVENTS.put(key, value, {
+  metadata: { eventType: "final", timestamp: Date.now() }
+});
+
+const { metadata } = await env.INVESTIGATION_EVENTS.getWithMetadata(key);
+```
+
+## Architecture Role
+
+KV serves as the **session and state storage layer**:
+
+1. **Rate Limiting**: Per-IP request counters with TTL
+2. **Event Backup**: Fallback storage for SSE streaming
+3. **Temporary Storage**: 1-hour TTL for transient data
+4. **Global Availability**: Low-latency reads from any region
+5. **Cost Efficiency**: Scales to zero when unused
+
+## When to Use KV vs Durable Objects
+
+| Use Case | Recommended Service |
+|----------|--------------------|
+| Rate limiting counters | **KV** (eventual consistency OK) |
+| Real-time WebSocket coordination | **Durable Objects** (strong consistency) |
+| Event buffering for replay | **Durable Objects** (stronger guarantees) |
+| Event backup/debugging | **KV** (cheap, disposable) |
+| Session tokens | **KV** (low latency globally) |
+| Transaction coordination | **Durable Objects** (ACID guarantees) |
+
+## Monitoring KV Usage
+
+```bash
+# List keys in namespace
+wrangler kv:key list --binding=RATE_LIMIT
+
+# Get a specific key
+wrangler kv:key get "ratelimit:192.168.1.100" --binding=RATE_LIMIT
+
+# Delete a key
+wrangler kv:key delete "ratelimit:192.168.1.100" --binding=RATE_LIMIT
+
+# Bulk delete (clear namespace)
+wrangler kv:key list --binding=INVESTIGATION_EVENTS | \
+  jq -r '.[].name' | \
+  xargs -I {} wrangler kv:key delete {} --binding=INVESTIGATION_EVENTS
+```
+
+## Related Services
+
+- [Workers](/integrations/workers) - KV consumer
+- [Durable Objects](/integrations/durable-objects) - Alternative for strong consistency
+- [Workflows](/integrations/workflows) - Event emission source
+- [D1](/integrations/d1) - Persistent graph storage

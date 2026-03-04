@@ -1,0 +1,132 @@
+---
+title: "REST API Overview"
+description: "Introduction to the Connected REST API, including authentication, base URL, and rate limits"
+---
+
+## Introduction
+
+The Connected REST API provides programmatic access to investigate social connections between public figures. The API uses AI-powered image analysis and graph traversal to discover and verify relationship paths between people.
+
+## Base URL
+
+All API requests should be made to:
+
+```
+https://your-worker-domain.workers.dev
+```
+
+Replace `your-worker-domain` with your actual Cloudflare Workers deployment URL.
+
+## Authentication
+
+The Connected API uses IP-based rate limiting instead of API keys. All endpoints are publicly accessible but subject to rate limits (see below).
+
+### Whitelisted IPs
+
+You can configure unlimited access for specific IP addresses using the `WHITELISTED_IPS` environment variable:
+
+```bash
+WHITELISTED_IPS="192.168.1.1,10.0.0.1"
+```
+
+Whitelisted IPs bypass all rate limiting.
+
+## Rate Limits
+
+All API requests are subject to the following rate limits:
+
+- **Limit**: 50 requests per 24 hours per IP address
+- **Window**: Rolling 24-hour window
+- **Scope**: Rate limits apply to investigation endpoints (POST /api/chat/query)
+
+### Rate Limit Headers
+
+All responses include the following headers:
+
+<ResponseField name="X-RateLimit-Limit" type="string">
+  Maximum number of requests allowed per window (50)
+</ResponseField>
+
+<ResponseField name="X-RateLimit-Remaining" type="string">
+  Number of requests remaining in current window
+</ResponseField>
+
+<ResponseField name="X-RateLimit-Reset" type="string">
+  Unix timestamp when the rate limit window resets
+</ResponseField>
+
+### Rate Limit Exceeded Response
+
+When rate limit is exceeded, the API returns a 429 status code:
+
+```json
+{
+  "error": "Rate limit exceeded. You can perform 50 searches per day.",
+  "remaining": 0,
+  "resetAt": "2026-03-05T14:30:00.000Z"
+}
+```
+
+## CORS Support
+
+The API supports Cross-Origin Resource Sharing (CORS) for browser-based applications.
+
+### Allowed Origins
+
+Configure allowed origins using the `ALLOWED_ORIGINS` environment variable:
+
+```bash
+ALLOWED_ORIGINS="https://example.com,https://app.example.com"
+```
+
+Default allowed origins:
+- `https://vd.nintang48.workers.dev`
+- `http://localhost:3000`
+- `http://localhost:3001`
+
+### CORS Headers
+
+All responses include:
+
+```
+Access-Control-Allow-Origin: [matched-origin]
+Access-Control-Allow-Methods: GET, POST, OPTIONS
+Access-Control-Allow-Headers: Content-Type
+```
+
+## Error Handling
+
+The API uses standard HTTP status codes:
+
+| Status Code | Meaning |
+|------------|----------|
+| 200 | Success |
+| 400 | Bad Request - Invalid parameters |
+| 404 | Not Found - Resource doesn't exist |
+| 429 | Too Many Requests - Rate limit exceeded |
+| 500 | Internal Server Error |
+| 503 | Service Unavailable - Health check failed |
+
+### Error Response Format
+
+All errors return a JSON object with an `error` field:
+
+```json
+{
+  "error": "Description of what went wrong"
+}
+```
+
+## API Versioning
+
+Current API version: **1.0.0**
+
+The API does not currently use versioned endpoints. Breaking changes will be communicated in advance.
+
+## Available Endpoints
+
+The API is organized into three main sections:
+
+- **[Chat](/api/chat)** - Start investigations and monitor progress
+- **[Graph](/api/graph)** - Query the social connection graph
+- **[Health](/api/health)** - Service health checks

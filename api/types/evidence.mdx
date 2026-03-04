@@ -1,0 +1,146 @@
+---
+title: "Evidence Types"
+description: "Types for evidence collection and verification"
+---
+
+## EvidenceRecord
+
+A single piece of evidence showing two people together in an image.
+
+```typescript
+interface EvidenceRecord {
+  from: string;
+  to: string;
+  imageUrl: string;
+  thumbnailUrl: string;
+  contextUrl: string;
+  title: string;
+  detectedCelebs: Array<{ name: string; confidence: number }>;
+  imageScore: number;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `from` | `string` | Yes | Source person in the connection |
+| `to` | `string` | Yes | Target person in the connection |
+| `imageUrl` | `string` | Yes | Direct URL to the full-size image |
+| `thumbnailUrl` | `string` | Yes | URL to thumbnail version for UI preview |
+| `contextUrl` | `string` | Yes | URL to the webpage where the image was found |
+| `title` | `string` | Yes | Title or description of the image |
+| `detectedCelebs` | `Array<{ name: string; confidence: number }>` | Yes | All celebrities detected in this image with confidence scores |
+| `imageScore` | `number` | Yes | Per-image evidence score calculated as min(confP, confQ) |
+
+## VerifiedEdge
+
+A verified connection between two people with supporting evidence.
+
+```typescript
+interface VerifiedEdge {
+  from: string;
+  to: string;
+  edgeConfidence: number;
+  evidence: EvidenceRecord[];
+  bestEvidence: EvidenceRecord;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `from` | `string` | Yes | Source person in the connection |
+| `to` | `string` | Yes | Target person in the connection |
+| `edgeConfidence` | `number` | Yes | Edge confidence score: max(imageScore) across all valid evidence images |
+| `evidence` | `EvidenceRecord[]` | Yes | All valid evidence images for this edge |
+| `bestEvidence` | `EvidenceRecord` | Yes | The single best evidence image (highest imageScore) |
+
+## DetectedCelebrity
+
+A celebrity detected in an image by Amazon Rekognition.
+
+```typescript
+interface DetectedCelebrity {
+  name: string;
+  confidence: number;
+  boundingBox: BoundingBox;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | `string` | Yes | Celebrity name as returned by Rekognition |
+| `confidence` | `number` | Yes | Match confidence score (0-100) |
+| `boundingBox` | `BoundingBox` | Yes | Face bounding box coordinates in the image |
+
+## BoundingBox
+
+Bounding box coordinates for a detected face.
+
+```typescript
+interface BoundingBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `left` | `number` | Yes | Left coordinate (0-1, relative to image width) |
+| `top` | `number` | Yes | Top coordinate (0-1, relative to image height) |
+| `width` | `number` | Yes | Width (0-1, relative to image width) |
+| `height` | `number` | Yes | Height (0-1, relative to image height) |
+
+## ImageAnalysisResult
+
+Result from analyzing a single image with Amazon Rekognition.
+
+```typescript
+interface ImageAnalysisResult {
+  imageUrl: string;
+  celebrities: DetectedCelebrity[];
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `imageUrl` | `string` | Yes | Original image URL that was analyzed |
+| `celebrities` | `DetectedCelebrity[]` | Yes | All celebrities detected in the image |
+
+## VerifiedPath
+
+A complete verified path between two people.
+
+```typescript
+interface VerifiedPath {
+  personA: string;
+  personB: string;
+  path: string[];
+  edges: VerifiedEdge[];
+  confidence: PathConfidence;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `personA` | `string` | Yes | Starting person |
+| `personB` | `string` | Yes | Target person |
+| `path` | `string[]` | Yes | Ordered list of people in the path [A, ..., B] |
+| `edges` | `VerifiedEdge[]` | Yes | All edges in the path with evidence |
+| `confidence` | `PathConfidence` | Yes | Path confidence metrics |
+
+## PathConfidence
+
+Confidence metrics for a complete path.
+
+```typescript
+interface PathConfidence {
+  pathBottleneck: number;
+  pathCumulative: number;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `pathBottleneck` | `number` | Yes | Minimum edge confidence across the entire path (weakest link) |
+| `pathCumulative` | `number` | Yes | Product of (edge_conf / 100) across all edges, as decimal 0-1 |

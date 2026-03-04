@@ -1,0 +1,554 @@
+---
+title: "OpenRouter Integration"
+description: "Multi-provider LLM routing for query parsing, visual verification, and strategic planning"
+---
+
+## Overview
+
+OpenRouter provides access to multiple LLM providers through a unified API, with special features like web search integration. Connected uses OpenRouter as the primary LLM provider for:
+
+1. **Query Parsing** - Extract person names from natural language queries
+2. **Visual Verification** - Fallback for filtering composite images
+3. **Celebrity Verification** - AI-based celebrity identification when Rekognition fails
+4. **Strategic Planning** - Select next expansion candidates
+5. **Bridge Suggestions** - Recommend people who might connect two individuals
+
+## Configuration
+
+### Environment Variables
+
+```bash
+OPENROUTER_API_KEY=your_openrouter_key                    # Required: OpenRouter API key
+OPENROUTER_MODEL=google/gemini-2.0-flash-001              # Optional: Model to use
+```
+
+### Setup Requirements
+
+1. **Create an OpenRouter Account**
+   - Sign up at [openrouter.ai](https://openrouter.ai)
+   - Add credits to your account
+   - Generate an API key
+
+2. **Choose a Model**
+   - Default: `google/gemini-2.0-flash-001` (recommended)
+   - Alternatives: `google/gemini-2.5-flash-lite`, `anthropic/claude-3-haiku`
+   - See [OpenRouter models](https://openrouter.ai/models)
+
+### Client Configuration
+
+```typescript
+import { OpenRouterClient } from '@visual-degrees/integrations';
+
+const client = new OpenRouterClient({
+  apiKey: process.env.OPENROUTER_API_KEY,
+  model: 'google/gemini-2.0-flash-001',   // Optional
+  requestTimeout: 30000,                   // Optional: 30s timeout
+  maxImageSize: 10485760                   // Optional: 10MB max
+});
+```
+
+Or use the factory function:
+
+```typescript
+import { createOpenRouterClient } from '@visual-degrees/integrations';
+
+const client = createOpenRouterClient();
+```
+
+## Features
+
+### 1. Query Parsing
+
+Parse natural language queries to extract two person names:
+
+```typescript
+const result = await client.parseQuery(
+  'How is Elon Musk connected to Beyoncé?'
+);
+
+if (result.isValid) {
+  console.log(result.personA);      // "Elon Musk"
+  console.log(result.personB);      // "Beyoncé"
+  console.log(result.confidence);   // 95
+} else {
+  console.log(result.reason);       // Why parsing failed
+}
+```
+
+#### Title/Role Resolution
+
+The parser automatically resolves titles to actual names:
+
+```typescript
+// Input: "Connect the president of America to the CEO of Tesla"
+{
+  personA: "Joe Biden",           // Resolved from "president of America"
+  personB: "Elon Musk",           // Resolved from "CEO of Tesla"
+  isValid: true,
+  confidence: 90,
+  resolvedFrom: {
+    personA: "president of America",
+    personB: "CEO of Tesla"
+  }
+}
+```
+
+**Uses web search** to get up-to-date information on current office holders.
+
+#### Response Format
+
+```typescript
+interface ParseQueryResult {
+  personA: string;              // First person's name
+  personB: string;              // Second person's name
+  isValid: boolean;             // Whether parsing succeeded
+  confidence: number;           // Confidence score (0-100)
+  reason?: string;              // Explanation if invalid
+  resolvedFrom?: {              // Original text if resolved from title
+    personA: string | null;
+    personB: string | null;
+  };
+}
+```
+
+### 2. Visual Copresence Verification
+
+Fallback for Gemini's visual filtering:
+
+```typescript
+const result = await client.verifyVisualCopresence(
+  'https://example.com/image.jpg'
+);
+
+if (result.isValidScene) {
+  console.log('✓ Single scene - proceed');
+} else {
+  console.log('✗ Composite:', result.reason);
+}
+```
+
+**Features:**
+- Fetches images with browser-like headers to avoid 403 errors
+- Validates image format via magic bytes
+- Rejects HTML error pages
+- Converts to base64 data URLs for LLM
+
+### 3. Celebrity Verification
+
+AI-based celebrity identification as fallback when Rekognition doesn't recognize someone:
+
+```typescript
+const result = await client.verifyCelebritiesInImage(
+  'https://example.com/image.jpg',
+  'Taylor Swift',
+  'Travis Kelce'
+);
+
+if (result.togetherInScene) {
+  console.log(`Person A confidence: ${result.personAConfidence}%`);
+  console.log(`Person B confidence: ${result.personBConfidence}%`);
+  console.log(`Overall: ${result.overallConfidence}%`);
+  console.log(`Notes: ${result.notes}`);
+}
+```
+
+**Use case:** When Rekognition's celebrity database doesn't include newer celebrities or non-traditional public figures.
+
+#### Response Format
+
+```typescript
+interface CelebrityVerificationResult {
+  personAFound: boolean;         // Whether Person A was identified
+  personAConfidence: number;     // Confidence for Person A (0-100)
+  personBFound: boolean;         // Whether Person B was identified
+  personBConfidence: number;     // Confidence for Person B (0-100)
+  togetherInScene: boolean;      // Both found in same scene
+  overallConfidence: number;     // Overall confidence (0-100)
+  notes: string;                 // Additional context
+}
+```
+
+### 4. Strategic Planning
+
+Select next expansion candidates:
+
+```typescript
+const decision = await client.selectNextExpansion({
+  personA: 'Taylor Swift',
+  personB: 'LeBron James',
+  frontier: ['Travis Kelce'],
+  candidates: [
+    { name: 'Patrick Mahomes', coappearCount: 15, bestCoappearConfidence: 95 },
+    { name: 'Drake', coappearCount: 8, bestCoappearConfidence: 90 }
+  ],
+  hopUsed: 1,
+  hopLimit: 6,
+  confidenceThreshold: 80,
+  budgets: { images: 100, searches: 50 },
+  verifiedEdges: [],
+  failedCandidates: []
+});
+
+console.log(decision.nextCandidates);   // ['Drake']
+console.log(decision.searchQueries);    // Specific queries
+console.log(decision.narration);        // User-facing message
+console.log(decision.reason);           // Strategic reasoning
+```
+
+**Streaming version available:**
+
+```typescript
+const decision = await client.selectNextExpansionStreaming(
+  input,
+  (chunk, done) => {
+    if (!done) {
+      process.stdout.write(chunk);  // Stream reasoning to UI
+    }
+  }
+);
+```
+
+### 5. Bridge Candidate Suggestions
+
+Suggest specific real people who might connect two individuals:
+
+```typescript
+const suggestions = await client.suggestBridgeCandidates(
+  'Donald Trump',
+  'Juice WRLD',
+  ['Kanye West', 'Lil Wayne']  // Optional: exclude already tried
+);
+
+for (const suggestion of suggestions) {
+  console.log(suggestion.name);            // "Travis Scott"
+  console.log(suggestion.reasoning);       // Strategic explanation
+  console.log(suggestion.connectionToA);   // How connected to Trump
+  console.log(suggestion.connectionToB);   // How connected to Juice WRLD
+  console.log(suggestion.confidence);      // 0-100
+}
+```
+
+**Features:**
+- Timeline-aware: considers when people were alive/active
+- Industry overlap analysis
+- Event attendance patterns
+- Excludes previously tried candidates
+
+**Streaming version:**
+
+```typescript
+const suggestions = await client.suggestBridgeCandidatesStreaming(
+  personA,
+  personB,
+  (chunk, done) => {
+    if (!done) console.log(chunk);
+  },
+  excludeList
+);
+```
+
+## Strategic Selection Criteria
+
+OpenRouter uses sophisticated selection logic:
+
+```typescript
+// Priority order:
+1. DIRECT INDUSTRY LINK
+   - Candidate works in same field as target
+   - Example: Both in hip-hop industry
+
+2. SHARED SOCIAL CIRCLES
+   - Candidate attends same events as target
+   - Example: Both frequent Met Gala attendees
+
+3. SUPER-CONNECTOR
+   - Candidate has broad network
+   - Example: Talk show hosts, music producers
+
+4. GEOGRAPHIC PROXIMITY
+   - Candidate in same cities/scenes as target
+   - Example: Both in LA entertainment scene
+```
+
+## Image Processing
+
+### Browser-Like Headers
+
+OpenRouter uses realistic browser headers to avoid image blocking:
+
+```typescript
+{
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36...',
+  'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://source-domain.com/',  // Dynamically set
+  'Sec-Fetch-Dest': 'image',
+  'Sec-Fetch-Mode': 'no-cors',
+  'Sec-Fetch-Site': 'cross-site'
+}
+```
+
+### Image Validation
+
+```typescript
+// Format detection via magic bytes
+JPEG: FF D8 FF
+PNG:  89 50 4E 47
+GIF:  47 49 46 38
+WebP: 52 49 46 46
+
+// Rejection criteria
+✗ HTML error pages (looks for <!doctype, <html>)
+✗ Images < 100 bytes
+✗ Images > 10MB (configurable)
+✗ Invalid/missing magic bytes
+✗ Timeout after 10 seconds
+```
+
+### Base64 Conversion
+
+Images are converted to data URLs for LLM processing:
+
+```typescript
+data:image/jpeg;base64,/9j/4AAQSkZJRg...
+```
+
+## Error Handling
+
+### Automatic Fallbacks
+
+```typescript
+// Planning fallback
+if (llm_planning_fails) {
+  // Use heuristic: pick candidate with highest confidence
+  // Generate default queries
+  // Return basic narration
+}
+
+// Visual verification fallback
+if (image_fetch_fails) {
+  throw Error("Image not accessible");
+  // Caller should skip this image and try next
+}
+
+// Celebrity verification fallback
+if (verification_fails) {
+  return {
+    personAFound: false,
+    personBFound: false,
+    togetherInScene: false,
+    overallConfidence: 0,
+    notes: "Error: <error message>"
+  };
+}
+```
+
+### Error Types
+
+```typescript
+try {
+  const result = await client.parseQuery(query);
+} catch (error) {
+  // Possible errors:
+  // - OpenRouter API error (401, 403, 429, 500)
+  // - Request timeout (30s default)
+  // - Network errors
+  // - Invalid model name
+  // - Rate limiting
+  console.error('OpenRouter error:', error.message);
+}
+```
+
+## Rate Limits and Costs
+
+### OpenRouter Limits
+
+- **Rate limits**: Varies by model provider
+- **Quotas**: Based on account credits
+- **Timeout**: 30 seconds per request (configurable)
+
+### Pricing (Gemini 2.0 Flash via OpenRouter)
+
+- **Input**: ~$0.10 per 1M tokens
+- **Output**: ~$0.40 per 1M tokens
+- **Images**: ~$0.004 per image
+
+**Estimated costs for typical query:**
+- Query parsing: $0.0001
+- Visual verification: $0.004 per image
+- Bridge suggestions: $0.001
+- Planning decisions: $0.0005
+
+### Cost Optimization
+
+```typescript
+// 1. Use fast, cheap models
+model: 'google/gemini-2.5-flash-lite'  // Even cheaper than 2.0-flash
+
+// 2. Cache results
+// Store parsed queries, verified images, etc.
+
+// 3. Limit image size
+maxImageSize: 5 * 1024 * 1024  // 5MB instead of 10MB
+
+// 4. Use timeouts
+requestTimeout: 15000  // 15s instead of 30s
+```
+
+## Integration Example
+
+Complete OpenRouter integration:
+
+```typescript
+import { createOpenRouterClient } from '@visual-degrees/integrations';
+
+const client = createOpenRouterClient();
+
+async function investigateConnection(query: string) {
+  // 1. Parse query
+  const parsed = await client.parseQuery(query);
+  
+  if (!parsed.isValid) {
+    console.error('Invalid query:', parsed.reason);
+    return;
+  }
+  
+  console.log(`Finding path: ${parsed.personA} → ${parsed.personB}`);
+  
+  // 2. Suggest bridge candidates
+  const bridges = await client.suggestBridgeCandidates(
+    parsed.personA,
+    parsed.personB
+  );
+  
+  console.log(`\nSuggested bridges:`);
+  for (const bridge of bridges.slice(0, 3)) {
+    console.log(`  • ${bridge.name} (${bridge.confidence}%)`);
+    console.log(`    ${bridge.reasoning}`);
+  }
+  
+  // 3. Start investigation with planning
+  const candidates = bridges.map(b => ({
+    name: b.name,
+    coappearCount: 0,
+    bestCoappearConfidence: b.confidence
+  }));
+  
+  const decision = await client.selectNextExpansion({
+    personA: parsed.personA,
+    personB: parsed.personB,
+    frontier: [parsed.personA],
+    candidates,
+    hopUsed: 0,
+    hopLimit: 6,
+    confidenceThreshold: 80,
+    budgets: { images: 100, searches: 50 },
+    verifiedEdges: [],
+    failedCandidates: []
+  });
+  
+  console.log(`\n${decision.narration}`);
+  console.log(`Next: ${decision.nextCandidates.join(', ')}`);
+  console.log(`Queries: ${decision.searchQueries.join(', ')}`);
+}
+
+investigateConnection('Connect Elon Musk to Beyoncé');
+```
+
+## Streaming Support
+
+OpenRouter supports streaming for real-time UI updates:
+
+```typescript
+// Stream bridge suggestions
+await client.suggestBridgeCandidatesStreaming(
+  personA,
+  personB,
+  (chunk: string, done: boolean) => {
+    if (!done) {
+      // Send chunk to UI
+      ws.send(JSON.stringify({ type: 'reasoning', text: chunk }));
+    } else {
+      // Streaming complete
+      ws.send(JSON.stringify({ type: 'reasoning_done' }));
+    }
+  }
+);
+
+// Stream planning decisions
+await client.selectNextExpansionStreaming(
+  input,
+  (chunk: string, done: boolean) => {
+    if (!done) {
+      updateUI(chunk);  // Show LLM reasoning in real-time
+    }
+  }
+);
+```
+
+## API Reference
+
+### Class: `OpenRouterClient`
+
+#### Constructor
+
+```typescript
+new OpenRouterClient(config: OpenRouterConfig)
+```
+
+**Parameters:**
+- `config.apiKey` (string): OpenRouter API key
+- `config.model` (string, optional): Model name (default: "google/gemini-2.0-flash-001")
+- `config.requestTimeout` (number, optional): Timeout in ms (default: 30000)
+- `config.maxImageSize` (number, optional): Max image size in bytes (default: 10MB)
+
+#### Methods
+
+**`parseQuery(query: string): Promise<ParseQueryResult>`**
+
+Parse natural language query to extract person names.
+
+**`verifyVisualCopresence(imageUrl: string): Promise<VisualVerificationResult>`**
+
+Verify if image shows single scene or composite.
+
+**`verifyCelebritiesInImage(imageUrl: string, personA: string, personB: string): Promise<CelebrityVerificationResult>`**
+
+AI-based celebrity identification.
+
+**`selectNextExpansion(input: PlannerInput): Promise<PlannerOutput>`**
+
+Select next candidates to explore.
+
+**`selectNextExpansionStreaming(input: PlannerInput, onChunk: StreamCallback): Promise<PlannerOutput>`**
+
+Streaming version of selectNextExpansion.
+
+**`suggestBridgeCandidates(personA: string, personB: string, exclude?: string[]): Promise<BridgeCandidateSuggestion[]>`**
+
+Suggest specific bridge candidates.
+
+**`suggestBridgeCandidatesStreaming(personA: string, personB: string, onChunk: StreamCallback, exclude?: string[]): Promise<BridgeCandidateSuggestion[]>`**
+
+Streaming version of suggestBridgeCandidates.
+
+### Factory Function
+
+**`createOpenRouterClient(): OpenRouterClient`**
+
+Create client from environment variables.
+
+## Source Code
+
+Implementation: [`packages/integrations/src/openrouter/client.ts`](https://github.com/nintang/cf_ai_connected/blob/main/packages/integrations/src/openrouter/client.ts)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Investigation Pipeline" icon="diagram-project" href="/features/investigation-pipeline">
+    Learn how the investigation workflow operates
+  </Card>
+  <Card title="Architecture Overview" icon="sitemap" href="/architecture/overview">
+    See how OpenRouter fits in the pipeline
+  </Card>
+</CardGroup>

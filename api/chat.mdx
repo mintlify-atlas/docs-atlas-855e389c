@@ -1,0 +1,378 @@
+---
+title: "Chat Endpoints"
+description: "Start and manage celebrity connection investigations"
+---
+
+## POST /api/chat/query
+
+Start a new investigation to find a connection between two public figures.
+
+### Request Body
+
+<ParamField body="personA" type="string" required>
+  The starting person (e.g., "Elon Musk")
+</ParamField>
+
+<ParamField body="personB" type="string" required>
+  The target person to connect to (e.g., "Beyonce")
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string">
+  Workflow instance ID for checking status
+</ResponseField>
+
+<ResponseField name="runId" type="string">
+  Unique run identifier for tracking events
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Investigation status (always "started" for this endpoint)
+</ResponseField>
+
+<ResponseField name="personA" type="string">
+  Echo of the starting person
+</ResponseField>
+
+<ResponseField name="personB" type="string">
+  Echo of the target person
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-worker.workers.dev/api/chat/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "personA": "Elon Musk",
+    "personB": "Beyonce"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "id": "01234567-89ab-cdef-0123-456789abcdef",
+  "runId": "98765432-10fe-dcba-9876-543210fedcba",
+  "status": "started",
+  "personA": "Elon Musk",
+  "personB": "Beyonce"
+}
+```
+
+### Rate Limiting
+
+This endpoint is rate-limited to 50 requests per 24 hours per IP address. See [Rate Limits](/api/overview#rate-limits) for details.
+
+---
+
+## POST /api/chat/parse
+
+Parse a natural language query using AI to extract person names.
+
+### Request Body
+
+<ParamField body="query" type="string" required>
+  Natural language query (e.g., "Elon Musk to Beyonce")
+</ParamField>
+
+### Response
+
+<ResponseField name="isValid" type="boolean">
+  Whether the query was successfully parsed
+</ResponseField>
+
+<ResponseField name="personA" type="string">
+  Extracted starting person (if valid)
+</ResponseField>
+
+<ResponseField name="personB" type="string">
+  Extracted target person (if valid)
+</ResponseField>
+
+<ResponseField name="reason" type="string">
+  Explanation if query is invalid
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-worker.workers.dev/api/chat/parse \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "How is Elon Musk connected to Beyonce?"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "isValid": true,
+  "personA": "Elon Musk",
+  "personB": "Beyonce"
+}
+```
+
+### Invalid Query Response
+
+```json
+{
+  "isValid": false,
+  "reason": "Could not identify two distinct people in the query"
+}
+```
+
+---
+
+## GET /api/chat/status/:instanceId
+
+Get the current status of a workflow instance.
+
+### Path Parameters
+
+<ParamField path="instanceId" type="string" required>
+  Workflow instance ID returned from POST /api/chat/query
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string">
+  Workflow instance ID
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Workflow status: "running", "success", "failed", or "terminated"
+</ResponseField>
+
+<ResponseField name="error" type="string" optional>
+  Error message if status is "failed"
+</ResponseField>
+
+<ResponseField name="output" type="object" optional>
+  Investigation result if status is "success"
+</ResponseField>
+
+### Example Request
+
+```bash
+curl https://your-worker.workers.dev/api/chat/status/01234567-89ab-cdef-0123-456789abcdef
+```
+
+### Example Response (Running)
+
+```json
+{
+  "id": "01234567-89ab-cdef-0123-456789abcdef",
+  "status": "running"
+}
+```
+
+### Example Response (Success)
+
+```json
+{
+  "id": "01234567-89ab-cdef-0123-456789abcdef",
+  "status": "success",
+  "output": {
+    "status": "success",
+    "result": {
+      "personA": "Elon Musk",
+      "personB": "Beyonce",
+      "path": ["Elon Musk", "Jay-Z", "Beyonce"],
+      "edges": [
+        {
+          "from": "Elon Musk",
+          "to": "Jay-Z",
+          "edgeConfidence": 95.2,
+          "evidence": [...]
+        }
+      ],
+      "confidence": {
+        "pathBottleneck": 89.5,
+        "pathCumulative": 0.85
+      }
+    },
+    "disclaimer": "Results based on public image analysis"
+  }
+}
+```
+
+### Example Response (Not Found)
+
+Status: 404
+
+```json
+{
+  "error": "Instance not found"
+}
+```
+
+---
+
+## GET /api/chat/events/:runId
+
+Poll for investigation events (alternative to WebSocket streaming).
+
+### Path Parameters
+
+<ParamField path="runId" type="string" required>
+  Run ID returned from POST /api/chat/query
+</ParamField>
+
+### Query Parameters
+
+<ParamField query="cursor" type="string" optional>
+  Event cursor to get events after a specific point (starts at 0)
+</ParamField>
+
+### Response
+
+<ResponseField name="runId" type="string">
+  Run identifier
+</ResponseField>
+
+<ResponseField name="events" type="array">
+  Array of InvestigationEvent objects since cursor
+</ResponseField>
+
+<ResponseField name="complete" type="boolean">
+  Whether the investigation has finished
+</ResponseField>
+
+<ResponseField name="cursor" type="string">
+  Cursor value for next poll request
+</ResponseField>
+
+### Example Request
+
+```bash
+# Get all events
+curl https://your-worker.workers.dev/api/chat/events/98765432-10fe-dcba-9876-543210fedcba
+
+# Get events after cursor 5
+curl https://your-worker.workers.dev/api/chat/events/98765432-10fe-dcba-9876-543210fedcba?cursor=5
+```
+
+### Example Response
+
+```json
+{
+  "runId": "98765432-10fe-dcba-9876-543210fedcba",
+  "events": [
+    {
+      "type": "step_start",
+      "runId": "98765432-10fe-dcba-9876-543210fedcba",
+      "timestamp": "2026-03-04T12:34:56.789Z",
+      "message": "Starting direct connection check",
+      "data": {
+        "stepId": "direct_check",
+        "stepNumber": 1,
+        "stepTitle": "Checking for Direct Connection",
+        "stepStatus": "running"
+      }
+    },
+    {
+      "type": "evidence",
+      "runId": "98765432-10fe-dcba-9876-543210fedcba",
+      "timestamp": "2026-03-04T12:35:01.234Z",
+      "message": "Found connection: Elon Musk → Jay-Z",
+      "data": {
+        "edge": {
+          "from": "Elon Musk",
+          "to": "Jay-Z",
+          "confidence": 95.2,
+          "evidenceUrl": "https://example.com/image.jpg",
+          "thumbnailUrl": "https://example.com/thumb.jpg",
+          "contextUrl": "https://example.com/article"
+        }
+      }
+    }
+  ],
+  "complete": false,
+  "cursor": "2"
+}
+```
+
+### Event Types
+
+The `events` array contains objects with the following types:
+
+- `step_start` - Beginning of a new investigation step
+- `step_update` - Progress update within a step
+- `step_complete` - Step finished
+- `research` - Starting image search query
+- `thinking` - AI reasoning process
+- `candidate_discovery` - Found potential connection bridges
+- `image_result` - Per-image analysis result
+- `evidence` - Verified connection found
+- `path_update` - Connection path updated
+- `final` - Investigation completed successfully
+- `no_path` - No connection found
+- `error` - Error occurred
+
+---
+
+## GET /api/chat/stream/:runId
+
+Server-Sent Events (SSE) stream for real-time investigation updates.
+
+### Path Parameters
+
+<ParamField path="runId" type="string" required>
+  Run ID returned from POST /api/chat/query
+</ParamField>
+
+### Response
+
+Returns a Server-Sent Events stream with `Content-Type: text/event-stream`.
+
+Each event is formatted as:
+
+```
+data: {"type":"step_start","runId":"...","timestamp":"...","message":"..."}
+
+```
+
+### Example Request
+
+```bash
+curl -N https://your-worker.workers.dev/api/chat/stream/98765432-10fe-dcba-9876-543210fedcba
+```
+
+### Stream Characteristics
+
+- **Protocol**: Server-Sent Events (SSE)
+- **Max Duration**: 10 minutes
+- **Poll Interval**: 100ms
+- **Completion**: Stream closes automatically when investigation finishes or times out
+
+---
+
+## WebSocket Endpoints
+
+For real-time bidirectional communication, use WebSocket connections:
+
+### GET /api/chat/ws/:runId
+
+WebSocket connection for investigation events.
+
+**Path Parameters:**
+- `runId` - Run ID from POST /api/chat/query
+
+**Query Parameters:**
+- `cursor` (optional) - Start replay from specific event index
+
+**Example:**
+```javascript
+const ws = new WebSocket('wss://your-worker.workers.dev/api/chat/ws/98765432-10fe-dcba-9876-543210fedcba');
+
+ws.onmessage = (event) => {
+  const investigationEvent = JSON.parse(event.data);
+  console.log(investigationEvent);
+};
+```
+
+WebSocket messages follow the same InvestigationEvent schema as the polling endpoint.

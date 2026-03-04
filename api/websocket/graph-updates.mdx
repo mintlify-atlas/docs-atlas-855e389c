@@ -1,0 +1,495 @@
+---
+title: Graph Updates WebSocket
+description: Real-time streaming of social graph edge updates via WebSocket at /api/graph/ws
+---
+
+The Graph Updates WebSocket provides real-time notifications when new edges are discovered and added to the social graph. Unlike investigation-specific WebSockets, this is a singleton connection that broadcasts all graph updates to connected clients.
+
+## Connection Endpoint
+
+```
+GET /api/graph/ws
+```
+
+### No Parameters
+
+This is a global broadcast endpoint - no query parameters or URL parameters required.
+
+## WebSocket Upgrade
+
+Connect using standard WebSocket protocol:
+
+```typescript
+const ws = new WebSocket('wss://api.example.com/api/graph/ws');
+
+ws.onopen = () => {
+  console.log('Connected to graph updates');
+};
+
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  
+  if (message.type === 'edge_update') {
+    console.log('New edge:', message.data);
+    updateGraphVisualization(message.data);
+  }
+};
+
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error);
+};
+
+ws.onclose = () => {
+  console.log('Connection closed');
+};
+```
+
+## Message Format
+
+All messages are JSON-encoded:
+
+```typescript
+interface WebSocketMessage {
+  type: "edge_update" | "ping" | "pong";
+  data?: GraphEdgeUpdate;
+}
+```
+
+## Message Types
+
+### Edge Update
+
+Received when a new connection is verified between two people:
+
+```json
+{
+  "type": "edge_update",
+  "data": {
+    "source": "Elon Musk",
+    "target": "Grimes",
+    "confidence": 95.5,
+    "evidenceUrl": "https://example.com/image.jpg",
+    "thumbnailUrl": "https://example.com/thumb.jpg",
+    "contextUrl": "https://example.com/article"
+  }
+}
+```
+
+### Ping/Pong
+
+For connection keep-alive:
+
+```typescript
+// Client sends
+ws.send(JSON.stringify({ type: "ping" }));
+
+// Server responds
+{
+  "type": "pong"
+}
+```
+
+## Edge Update Data
+
+The `GraphEdgeUpdate` interface contains:
+
+```typescript
+interface GraphEdgeUpdate {
+  /** Source person name */
+  source: string;
+  
+  /** Target person name */
+  target: string;
+  
+  /** Confidence score (0-100) */
+  confidence: number;
+  
+  /** URL of evidence image (optional) */
+  evidenceUrl?: string;
+  
+  /** Thumbnail URL for UI display (optional) */
+  thumbnailUrl?: string;
+  
+  /** Context webpage URL where evidence was found (optional) */
+  contextUrl?: string;
+}
+```
+
+## Complete Client Example
+
+```typescript
+class GraphUpdateStream {
+  private ws: WebSocket | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private pingInterval: number | null = null;
+  private onUpdate: (edge: GraphEdgeUpdate) => void;
+  
+  constructor(onUpdate: (edge: GraphEdgeUpdate) => void) {
+    this.onUpdate = onUpdate;
+    this.connect();
+  }
+  
+  private connect() {
+    this.ws = new WebSocket('wss://api.example.com/api/graph/ws');
+    
+    this.ws.onopen = () => {
+      console.log('Connected to graph updates');
+      this.reconnectAttempts = 0;
+      this.startPingInterval();
+    };
+    
+    this.ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      
+      if (message.type === 'edge_update') {
+        this.onUpdate(message.data);
+      } else if (message.type === 'pong') {
+        // Connection alive
+      }
+    };
+    
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+    
+    this.ws.onclose = () => {
+      console.log('Connection closed');
+      this.stopPingInterval();
+      this.attemptReconnect();
+    };
+  }
+  
+  private startPingInterval() {
+    this.pingInterval = window.setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 30000); // Ping every 30 seconds
+  }
+  
+  private stopPingInterval() {
+    if (this.pingInterval !== null) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
+  
+  private attemptReconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('Max reconnection attempts reached');
+      return;
+    }
+    
+    this.reconnectAttempts++;
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    
+    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    setTimeout(() => this.connect(), delay);
+  }
+  
+  close() {
+    this.stopPingInterval();
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+  }
+}
+
+// Usage
+const stream = new GraphUpdateStream((edge) => {
+  console.log(`New connection: ${edge.source} <-> ${edge.target}`);
+  console.log(`Confidence: ${edge.confidence}%`);
+  
+  // Update your graph visualization
+  addEdgeToGraph({
+    from: edge.source,
+    to: edge.target,
+    weight: edge.confidence,
+    evidence: edge.evidenceUrl
+  });
+});
+```
+
+## React Hook Example
+
+```typescript
+import { useEffect, useState } from 'react';
+
+interface GraphEdgeUpdate {
+  source: string;
+  target: string;
+  confidence: number;
+  evidenceUrl?: string;
+  thumbnailUrl?: string;
+  contextUrl?: string;
+}
+
+export function useGraphUpdates() {
+  const [edges, setEdges] = useState<GraphEdgeUpdate[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+  
+  useEffect(() => {
+    const ws = new WebSocket('wss://api.example.com/api/graph/ws');
+    
+    ws.onopen = () => {
+      setIsConnected(true);
+    };
+    
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      
+      if (message.type === 'edge_update') {
+        setEdges((prev) => [...prev, message.data]);
+      }
+    };
+    
+    ws.onerror = () => {
+      setIsConnected(false);
+    };
+    
+    ws.onclose = () => {
+      setIsConnected(false);
+    };
+    
+    return () => {
+      ws.close();
+    };
+  }, []);
+  
+  return { edges, isConnected };
+}
+
+// Component usage
+function GraphVisualization() {
+  const { edges, isConnected } = useGraphUpdates();
+  
+  return (
+    <div>
+      <div>Status: {isConnected ? 'Connected' : 'Disconnected'}</div>
+      <div>Edges discovered: {edges.length}</div>
+      {edges.map((edge, i) => (
+        <div key={i}>
+          {edge.source} → {edge.target} ({edge.confidence}%)
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+## Implementation Details
+
+### Durable Object Architecture
+
+The graph updates WebSocket is backed by a singleton Durable Object:
+
+- **Global Instance**: Only one Durable Object instance handles all connections
+- **Instance ID**: Created with name "global" for consistency
+- **Session Management**: Maintains a set of active WebSocket connections
+- **Broadcast Pattern**: When an edge is discovered, it's broadcast to all connected clients
+
+### Connection Flow
+
+1. Client requests WebSocket upgrade to `/api/graph/ws`
+2. Worker routes to singleton GraphBroadcaster Durable Object
+3. Durable Object accepts WebSocket connection
+4. Investigation workflows POST new edges to `/broadcast` endpoint
+5. Durable Object broadcasts edge to all connected clients
+
+### Broadcasting Mechanism
+
+From the source code (apps/worker/src/durable-objects/graph-broadcaster.ts:93):
+
+```typescript
+private broadcast(edge: GraphEdgeUpdate): void {
+  const message = JSON.stringify({
+    type: "edge_update",
+    data: edge,
+  });
+
+  const deadSessions: WebSocket[] = [];
+
+  for (const ws of this.sessions) {
+    try {
+      ws.send(message);
+    } catch {
+      // Connection is dead, mark for removal
+      deadSessions.push(ws);
+    }
+  }
+
+  // Clean up dead sessions
+  for (const ws of deadSessions) {
+    this.sessions.delete(ws);
+  }
+}
+```
+
+### Hibernation Support
+
+Cloudflare Durable Objects support WebSocket hibernation:
+
+- Connections can remain open even when the Durable Object is not actively processing
+- Automatic wake-up when messages arrive
+- Reduces resource usage for idle connections
+
+## Combining with Initial Graph Data
+
+For a complete graph visualization, combine WebSocket updates with the initial graph:
+
+```typescript
+class GraphManager {
+  private ws: WebSocket | null = null;
+  private edges: Map<string, GraphEdgeUpdate> = new Map();
+  
+  async initialize() {
+    // 1. Fetch initial graph state
+    const response = await fetch('https://api.example.com/api/graph');
+    const initialGraph = await response.json();
+    
+    // Populate initial edges
+    for (const edge of initialGraph.edges) {
+      const key = `${edge.from}-${edge.to}`;
+      this.edges.set(key, {
+        source: edge.from,
+        target: edge.to,
+        confidence: edge.edgeConfidence,
+      });
+    }
+    
+    // 2. Connect to WebSocket for live updates
+    this.connectWebSocket();
+  }
+  
+  private connectWebSocket() {
+    this.ws = new WebSocket('wss://api.example.com/api/graph/ws');
+    
+    this.ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      
+      if (message.type === 'edge_update') {
+        const key = `${message.data.source}-${message.data.target}`;
+        this.edges.set(key, message.data);
+        this.updateVisualization();
+      }
+    };
+  }
+  
+  private updateVisualization() {
+    // Update your graph visualization with this.edges
+  }
+}
+```
+
+## Error Handling
+
+```typescript
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error);
+  // Log for debugging but continue - reconnection will handle it
+};
+
+ws.onclose = (event) => {
+  if (event.code === 1006) {
+    // Abnormal closure - attempt reconnection
+    console.log('Unexpected disconnect, reconnecting...');
+    reconnect();
+  } else if (event.code === 1000) {
+    // Normal closure
+    console.log('WebSocket closed normally');
+  } else {
+    console.log(`WebSocket closed with code ${event.code}`);
+  }
+};
+```
+
+## Checking Connection Status
+
+You can query the Durable Object's status endpoint:
+
+```typescript
+const response = await fetch('https://api.example.com/api/graph/ws/status');
+const status = await response.json();
+console.log(`Connected clients: ${status.connectedClients}`);
+```
+
+Note: This is an internal endpoint and may not be publicly exposed in production.
+
+## Performance Considerations
+
+- **Broadcast Latency**: Typically < 100ms from edge discovery to client notification
+- **Connection Limit**: Durable Object can handle thousands of concurrent connections
+- **Message Rate**: Depends on investigation activity; typically 0-10 edges/minute
+- **Bandwidth**: Edge update messages are small (~200-500 bytes each)
+
+## Best Practices
+
+1. **Implement Reconnection Logic**: Handle network interruptions gracefully
+2. **Use Exponential Backoff**: Don't hammer the server with rapid reconnection attempts
+3. **Deduplicate Edges**: Multiple investigations may discover the same edge
+4. **Keep-Alive Pings**: Send periodic pings to keep connection alive
+5. **Clean Shutdown**: Close WebSocket when component unmounts
+
+```typescript
+useEffect(() => {
+  const ws = new WebSocket('wss://api.example.com/api/graph/ws');
+  
+  // Setup connection...
+  
+  // Clean up on unmount
+  return () => {
+    ws.close();
+  };
+}, []);
+```
+
+## Security
+
+- **CORS**: WebSocket connections respect CORS policies configured on the Worker
+- **Origin Validation**: Server validates the `Origin` header on upgrade
+- **No Authentication**: Currently no auth required; suitable for public graph data
+- **Rate Limiting**: Not applied to WebSocket connections (only HTTP endpoints)
+
+## Debugging
+
+Enable verbose logging:
+
+```typescript
+const ws = new WebSocket('wss://api.example.com/api/graph/ws');
+
+ws.onopen = () => console.log('[WS] Connected');
+ws.onclose = (e) => console.log('[WS] Closed:', e.code, e.reason);
+ws.onerror = (e) => console.error('[WS] Error:', e);
+ws.onmessage = (e) => {
+  console.log('[WS] Message:', e.data);
+  const message = JSON.parse(e.data);
+  if (message.type === 'edge_update') {
+    console.log('[WS] New edge:', message.data);
+  }
+};
+```
+
+## Alternative: Polling
+
+If WebSockets are not suitable for your use case, you can poll the graph endpoint:
+
+```typescript
+let lastEdgeCount = 0;
+
+setInterval(async () => {
+  const response = await fetch('https://api.example.com/api/graph/stats');
+  const stats = await response.json();
+  
+  if (stats.edgeCount > lastEdgeCount) {
+    // New edges detected, fetch full graph
+    const graphResponse = await fetch('https://api.example.com/api/graph');
+    const graph = await graphResponse.json();
+    updateVisualization(graph);
+    lastEdgeCount = stats.edgeCount;
+  }
+}, 5000); // Poll every 5 seconds
+```
+
+However, WebSockets provide lower latency and reduce unnecessary HTTP requests.

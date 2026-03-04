@@ -1,0 +1,139 @@
+---
+title: "Graph Types"
+description: "Types for graph visualization and representation"
+---
+
+## GraphNode
+
+Represents a person node in the connection graph.
+
+```typescript
+interface GraphNode {
+  id: string;
+  name: string;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | `string` | Yes | Unique identifier for the node |
+| `name` | `string` | Yes | Display name of the person |
+
+## GraphEdge
+
+Represents a connection between two people in the graph.
+
+```typescript
+interface GraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  edgeConfidence: number;
+  evidenceRefs: string[];
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | `string` | Yes | Unique identifier for the edge |
+| `from` | `string` | Yes | Source node ID |
+| `to` | `string` | Yes | Target node ID |
+| `edgeConfidence` | `number` | Yes | Confidence score for this connection (0-100) |
+| `evidenceRefs` | `string[]` | Yes | Array of evidence IDs supporting this edge |
+
+## GraphPayload
+
+Complete graph data structure for visualization.
+
+```typescript
+interface GraphPayload {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  evidence: Array<{
+    id: string;
+    imageUrl: string;
+    thumbnailUrl: string;
+    contextUrl: string;
+    title: string;
+  }>;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `nodes` | `GraphNode[]` | Yes | All person nodes in the graph |
+| `edges` | `GraphEdge[]` | Yes | All connections between nodes |
+| `evidence` | `Array<EvidenceItem>` | Yes | All evidence items referenced by edges |
+
+### Evidence Item
+
+Each evidence item in the `evidence` array has the following structure:
+
+```typescript
+{
+  id: string;
+  imageUrl: string;
+  thumbnailUrl: string;
+  contextUrl: string;
+  title: string;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | `string` | Yes | Unique identifier for the evidence |
+| `imageUrl` | `string` | Yes | Direct URL to the full-size image |
+| `thumbnailUrl` | `string` | Yes | URL to thumbnail version for previews |
+| `contextUrl` | `string` | Yes | URL to the webpage where the image was found |
+| `title` | `string` | Yes | Title or description of the image |
+
+## Usage Example
+
+```typescript
+const graphData: GraphPayload = {
+  nodes: [
+    { id: "1", name: "Person A" },
+    { id: "2", name: "Person B" },
+    { id: "3", name: "Person C" }
+  ],
+  edges: [
+    {
+      id: "edge-1",
+      from: "1",
+      to: "2",
+      edgeConfidence: 95,
+      evidenceRefs: ["evidence-1", "evidence-2"]
+    },
+    {
+      id: "edge-2",
+      from: "2",
+      to: "3",
+      edgeConfidence: 87,
+      evidenceRefs: ["evidence-3"]
+    }
+  ],
+  evidence: [
+    {
+      id: "evidence-1",
+      imageUrl: "https://example.com/image1.jpg",
+      thumbnailUrl: "https://example.com/thumb1.jpg",
+      contextUrl: "https://example.com/source1",
+      title: "Event Photo 1"
+    },
+    {
+      id: "evidence-2",
+      imageUrl: "https://example.com/image2.jpg",
+      thumbnailUrl: "https://example.com/thumb2.jpg",
+      contextUrl: "https://example.com/source2",
+      title: "Event Photo 2"
+    },
+    {
+      id: "evidence-3",
+      imageUrl: "https://example.com/image3.jpg",
+      thumbnailUrl: "https://example.com/thumb3.jpg",
+      contextUrl: "https://example.com/source3",
+      title: "Event Photo 3"
+    }
+  ]
+};
+```

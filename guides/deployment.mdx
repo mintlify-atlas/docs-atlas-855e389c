@@ -1,0 +1,377 @@
+---
+title: Deployment
+description: Deploy Connected to Cloudflare Workers and Pages for production
+---
+
+Connected runs entirely on the Cloudflare platform, using Workers for the backend and Pages for the frontend.
+
+## Prerequisites
+
+- [Cloudflare account](https://dash.cloudflare.com/sign-up)
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) installed
+- Environment variables configured (see below)
+
+## Authenticate with Cloudflare
+
+Before deploying, authenticate Wrangler with your Cloudflare account:
+
+```bash
+wrangler login
+```
+
+This opens a browser window for you to authorize Wrangler.
+
+## Deploy the Worker
+
+The Cloudflare Worker handles all backend logic, including API routes, Workflows, and Durable Objects.
+
+### Set Production Secrets
+
+Unlike local development (which uses `.dev.vars`), production secrets must be set using Wrangler:
+
+```bash
+cd apps/worker
+
+# Set each secret
+wrangler secret put GOOGLE_API_KEY
+wrangler secret put GOOGLE_CX
+wrangler secret put AWS_ACCESS_KEY_ID
+wrangler secret put AWS_SECRET_ACCESS_KEY
+wrangler secret put OPENROUTER_API_KEY
+wrangler secret put OPENROUTER_MODEL
+
+# Optional: Gemini fallback
+wrangler secret put GEMINI_API_KEY
+```
+
+You'll be prompted to enter each value. These are encrypted and stored securely.
+
+<Warning>
+  Never commit production secrets to version control or include them in `wrangler.toml`.
+</Warning>
+
+### Configure Bindings
+
+The worker requires several Cloudflare resources. These are defined in `wrangler.toml`:
+
+- **KV Namespaces**: For investigation events and rate limiting
+- **D1 Database**: For persistent graph storage
+- **Workflows**: For the investigation state machine
+- **Durable Objects**: For WebSocket event streaming
+
+<Steps>
+  <Step title="Create KV Namespaces">
+    ```bash
+    wrangler kv:namespace create INVESTIGATION_EVENTS
+    wrangler kv:namespace create RATE_LIMIT
+    ```
+
+    Copy the namespace IDs into `wrangler.toml`:
+
+    ```toml
+    [[kv_namespaces]]
+    binding = "INVESTIGATION_EVENTS"
+    id = "your-investigation-events-id"
+
+    [[kv_namespaces]]
+    binding = "RATE_LIMIT"
+    id = "your-rate-limit-id"
+    ```
+  </Step>
+
+  <Step title="Create D1 Database">
+    ```bash
+    wrangler d1 create visual-degrees-graph
+    ```
+
+    Copy the database ID into `wrangler.toml`:
+
+    ```toml
+    [[d1_databases]]
+    binding = "GRAPH_DB"
+    database_name = "visual-degrees-graph"
+    database_id = "your-database-id"
+    ```
+
+    The schema is automatically created when the worker first runs.
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Update the `[vars]` section in `wrangler.toml` for production:
+
+    ```toml
+    [vars]
+    AWS_REGION = "us-east-1"
+    ALLOWED_ORIGINS = "https://your-production-domain.com"
+    # Optional: Comma-separated list of IPs with unlimited access
+    # WHITELISTED_IPS = "1.2.3.4,5.6.7.8"
+    ```
+  </Step>
+</Steps>
+
+### Deploy
+
+Deploy the worker to Cloudflare:
+
+```bash
+cd apps/worker
+pnpm deploy
+```
+
+Wrangler builds and uploads your worker:
+
+```
+🌍  Uploading...
+✨  Success! Deployed to https://your-worker.your-subdomain.workers.dev
+```
+
+Your worker is now live at the URL shown.
+
+<Note>
+  The first deployment may take a minute as Cloudflare sets up Durable Objects and Workflows.
+</Note>
+
+## Deploy the Web App
+
+The Next.js frontend is deployed to Cloudflare Pages using OpenNext.
+
+### Configure Worker URL
+
+The web app needs to know your production worker URL:
+
+```bash
+cd apps/web
+
+# Set the worker URL
+export NEXT_PUBLIC_WORKER_URL=https://your-worker.your-subdomain.workers.dev
+```
+
+<Note>
+  This environment variable is embedded at build time and accessible in the browser.
+</Note>
+
+### Deploy to Pages
+
+```bash
+pnpm deploy
+```
+
+This command:
+
+1. Builds the Next.js app with the worker URL
+2. Converts it to Cloudflare Pages format using OpenNext
+3. Deploys to Cloudflare Pages
+
+You'll see output like:
+
+```
+✨ Compiled Worker successfully
+🌎 Uploading... (XX files)
+✨ Success! Deployed to https://your-app.pages.dev
+```
+
+Your app is now live!
+
+### Custom Domain (Optional)
+
+To use a custom domain:
+
+<Steps>
+  <Step title="Add Domain in Cloudflare">
+    1. Go to your [Cloudflare dashboard](https://dash.cloudflare.com/)
+    2. Select your Pages project
+    3. Go to **Custom domains** → **Set up a custom domain**
+    4. Enter your domain (e.g., `connected.example.com`)
+  </Step>
+
+  <Step title="Update CORS">
+    Add your custom domain to `ALLOWED_ORIGINS` in `wrangler.toml`:
+
+    ```toml
+    [vars]
+    ALLOWED_ORIGINS = "https://connected.example.com,https://your-app.pages.dev"
+    ```
+
+    Redeploy the worker:
+
+    ```bash
+    cd apps/worker
+    pnpm deploy
+    ```
+  </Step>
+
+  <Step title="Rebuild Web App">
+    Rebuild the web app to use your custom domain:
+
+    ```bash
+    cd apps/web
+    NEXT_PUBLIC_WORKER_URL=https://your-worker.your-subdomain.workers.dev pnpm deploy
+    ```
+  </Step>
+</Steps>
+
+## Deployment Checklist
+
+<Steps>
+  <Step title="Worker Production Secrets">
+    - [ ] `GOOGLE_API_KEY`
+    - [ ] `GOOGLE_CX`
+    - [ ] `AWS_ACCESS_KEY_ID`
+    - [ ] `AWS_SECRET_ACCESS_KEY`
+    - [ ] `OPENROUTER_API_KEY`
+    - [ ] `OPENROUTER_MODEL`
+  </Step>
+
+  <Step title="Worker Configuration">
+    - [ ] KV namespaces created and bound
+    - [ ] D1 database created and bound
+    - [ ] `ALLOWED_ORIGINS` set to production domain(s)
+    - [ ] `AWS_REGION` set (default: `us-east-1`)
+  </Step>
+
+  <Step title="Web App Configuration">
+    - [ ] `NEXT_PUBLIC_WORKER_URL` points to production worker
+    - [ ] Custom domain configured (optional)
+    - [ ] CORS updated to include frontend domain
+  </Step>
+
+  <Step title="Verify Deployment">
+    - [ ] Worker health check passes: `curl https://your-worker.workers.dev/api/health`
+    - [ ] Web app loads and connects to worker
+    - [ ] Test a full investigation query
+  </Step>
+</Steps>
+
+## Monitoring
+
+### Worker Analytics
+
+View worker metrics in the Cloudflare dashboard:
+
+1. Go to **Workers & Pages**
+2. Select your worker
+3. View **Metrics** for requests, errors, and CPU time
+
+### Pages Analytics
+
+View web app metrics:
+
+1. Go to **Workers & Pages**
+2. Select your Pages project
+3. View **Analytics** for page views and performance
+
+### Logs
+
+View real-time logs:
+
+```bash
+# Worker logs
+cd apps/worker
+wrangler tail
+
+# Pages logs
+cd apps/web
+wrangler pages deployment tail
+```
+
+## Continuous Deployment
+
+For automatic deployments on git push:
+
+### GitHub Actions (Worker)
+
+Create `.github/workflows/deploy-worker.yml`:
+
+```yaml
+name: Deploy Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/worker/**'
+      - 'packages/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - run: pnpm install
+      - run: pnpm build
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: apps/worker
+```
+
+### GitHub Actions (Pages)
+
+Create `.github/workflows/deploy-pages.yml`:
+
+```yaml
+name: Deploy Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - run: pnpm install
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: apps/web
+          command: pages deploy
+        env:
+          NEXT_PUBLIC_WORKER_URL: ${{ secrets.WORKER_URL }}
+```
+
+Add `CLOUDFLARE_API_TOKEN` and `WORKER_URL` to your GitHub repository secrets.
+
+## Rollback
+
+### Worker Rollback
+
+Cloudflare keeps previous worker versions:
+
+```bash
+cd apps/worker
+wrangler rollback
+```
+
+### Pages Rollback
+
+In the Cloudflare dashboard:
+
+1. Go to **Workers & Pages** → Your Pages project
+2. Click **Deployments**
+3. Find a previous deployment and click **Rollback**
+
+## Next Steps
+
+- [Configure rate limits and CORS](/guides/configuration)
+- [Health check endpoint](/api/health)
+- [Architecture overview](/architecture/overview)

@@ -1,97 +1,299 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: Connected - Visual Degrees of Separation
+description: Find visual connections between public figures using AI-powered image search, face verification, and real-time graph visualization
+mode: custom
 ---
 
-## Setting up
+<div className="relative overflow-hidden bg-gradient-to-b from-[#ee7a1d] to-[#f6bc8a] dark:from-[#0f1117] dark:to-[#1a1d27]">
+  <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIj48cGF0aCBkPSJNMzYgMzRjMC0yLjIxLTEuNzktNC00LTRMNTE2IDE2Yy0yLjIxIDAtNCA0Yy0yLjIxIDAtNC0xLjc5LTQtNGgxMHYzMHoiLz48L2c+PC9nPjwvc3ZnPg==')] opacity-10"></div>
+  
+  <div className="relative max-w-7xl mx-auto px-6 sm:px-8 py-16 sm:py-20 lg:py-24">
+    <div className="grid lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+      <div className="lg:col-span-7">
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white dark:text-gray-100 mb-4 sm:mb-6">
+          Find Visual Degrees of Separation
+        </h1>
+        <p className="text-lg sm:text-xl text-white/90 dark:text-gray-300 max-w-2xl mb-6 sm:mb-8">
+          AI-powered investigation system that discovers verified connections between public figures using live image search, celebrity face recognition, and real-time graph visualization.
+        </p>
+        <div className="flex flex-wrap gap-3 sm:gap-4">
+          <a 
+            href="/quickstart" 
+            className="inline-flex items-center px-6 py-3 bg-white dark:bg-[#1a1d27] text-[#ee7a1d] dark:text-[#f6bc8a] font-semibold rounded-lg hover:bg-gray-100 dark:hover:bg-[#242838] transition-colors"
+          >
+            Get Started
+            <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </a>
+          <a 
+            href="/api/overview" 
+            className="inline-flex items-center px-6 py-3 border-2 border-white/30 dark:border-gray-600 bg-white/10 dark:bg-[#242838]/50 text-white dark:text-gray-200 font-semibold rounded-lg hover:bg-white/20 dark:hover:bg-[#242838] transition-colors"
+          >
+            Explore API
+          </a>
+        </div>
+      </div>
+      
+      <div className="lg:col-span-5 hidden lg:block">
+        <div className="relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-[#ee7a1d] to-[#f6bc8a] rounded-2xl blur-3xl opacity-20"></div>
+          <div className="relative bg-white/10 dark:bg-[#1a1d27]/50 backdrop-blur-sm rounded-2xl p-6 border border-white/20 dark:border-gray-700">
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                <span className="text-white/90 dark:text-gray-300 text-sm font-mono">Searching images...</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                <span className="text-white/90 dark:text-gray-300 text-sm font-mono">Detecting faces...</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></div>
+                <span className="text-white/90 dark:text-gray-300 text-sm font-mono">Verifying connections...</span>
+              </div>
+              <div className="mt-4 pt-4 border-t border-white/20 dark:border-gray-700">
+                <div className="text-white/90 dark:text-gray-300 text-xs font-semibold mb-2">Path Found:</div>
+                <div className="flex items-center space-x-2 text-white/80 dark:text-gray-400 text-xs">
+                  <span>Person A</span>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                  <span>Bridge</span>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                  <span>Person B</span>
+                </div>
+                <div className="mt-2 text-[#f6bc8a] dark:text-[#f6bc8a] text-xs font-semibold">
+                  ✓ Verified with 95% confidence
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-3">
+      Quick Start
+    </h2>
+    <p className="text-base text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+      Get Connected up and running in minutes with this step-by-step guide
+    </p>
+  </div>
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+  <Steps>
+    <Step title="Clone the repository">
+      Start by cloning the Connected repository to your local machine:
+      
+      ```bash
+      git clone https://github.com/nintang/cf_ai_connected.git
+      cd cf_ai_connected
+      ```
+    </Step>
+    
+    <Step title="Install dependencies">
+      Connected uses pnpm for package management. Install all dependencies:
+      
+      ```bash
+      pnpm install
+      pnpm build
+      ```
+      
+      This will install dependencies for the entire monorepo and build all packages.
+    </Step>
+    
+    <Step title="Configure API keys">
+      Create a `.dev.vars` file in `apps/worker/` with your API credentials:
+      
+      ```env
+      # Google Programmable Search Engine
+      GOOGLE_API_KEY=your_google_api_key
+      GOOGLE_CX=your_search_engine_id
+      
+      # AWS Rekognition
+      AWS_ACCESS_KEY_ID=your_aws_access_key
+      AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+      
+      # OpenRouter (Gemini)
+      OPENROUTER_API_KEY=your_openrouter_key
+      OPENROUTER_MODEL=google/gemini-2.5-flash-lite
+      ```
+      
+      <Note>
+        You'll need API keys from Google Cloud Platform, AWS, and OpenRouter. See the [Environment Setup](/guides/environment-setup) guide for detailed instructions.
+      </Note>
+    </Step>
+    
+    <Step title="Start the development servers">
+      Run the worker and web app in separate terminals:
+      
+      ```bash Terminal 1
+      cd apps/worker
+      pnpm dev
+      ```
+      
+      ```bash Terminal 2
+      cd apps/web
+      pnpm dev
+      ```
+      
+      Visit `http://localhost:3000` to see Connected in action!
+    </Step>
+  </Steps>
+</div>
 
-## Make it yours
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-3">
+      Core Features
+    </h2>
+    <p className="text-base text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+      Explore the powerful capabilities that make Connected unique
+    </p>
+  </div>
 
-Design a docs site that looks great and empowers your users.
+  <CardGroup cols={2}>
+    <Card title="AI Investigation Pipeline" icon="brain" href="/features/investigation-pipeline">
+      Multi-step workflow with strategic planning, candidate discovery, and evidence verification powered by Gemini 2.0 Flash
+    </Card>
+    <Card title="Real-Time Streaming" icon="bolt" href="/features/real-time-streaming">
+      Live updates via WebSocket and Server-Sent Events show investigation progress as it happens
+    </Card>
+    <Card title="Graph Visualization" icon="project-diagram" href="/features/graph-visualization">
+      Interactive force-directed graph built with Sigma.js displays connections with visual evidence
+    </Card>
+    <Card title="Face Verification" icon="shield-check" href="/features/evidence-verification">
+      AWS Rekognition celebrity detection with 80% confidence threshold ensures accurate connections
+    </Card>
+    <Card title="Cloudflare Platform" icon="cloud" href="/architecture/cloudflare-stack">
+      Complete serverless architecture using Workers, Workflows, Durable Objects, KV, and D1
+    </Card>
+    <Card title="Confidence Scoring" icon="chart-line" href="/features/confidence-scoring">
+      Every connection includes confidence metrics based on face detection scores and visual evidence
+    </Card>
+  </CardGroup>
+</div>
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-3">
+      Explore by Topic
+    </h2>
+    <p className="text-base text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+      Deep dive into specific areas of the documentation
+    </p>
+  </div>
 
-## Create beautiful pages
+  <div className="grid md:grid-cols-3 gap-6">
+    <a 
+      href="/architecture/overview" 
+      className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#ee7a1d] dark:hover:border-[#ee7a1d] bg-white dark:bg-[#1a1d27] overflow-hidden transition-all no-underline"
+    >
+      <div className="p-6">
+        <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-[#ee7a1d]/10 dark:bg-[#ee7a1d]/20 mb-4">
+          <svg className="w-6 h-6 text-[#ee7a1d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+        </div>
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2 group-hover:text-[#ee7a1d] transition-colors">
+          Architecture
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Learn how Connected is built on Cloudflare's serverless platform
+        </p>
+        <div className="flex items-center text-sm text-[#ee7a1d] dark:text-[#f6bc8a] group-hover:text-[#ee7a1d] font-medium">
+          Explore architecture
+          <svg className="ml-1 w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
 
-Everything you need to create world-class documentation.
+    <a 
+      href="/api/overview" 
+      className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#ee7a1d] dark:hover:border-[#ee7a1d] bg-white dark:bg-[#1a1d27] overflow-hidden transition-all no-underline"
+    >
+      <div className="p-6">
+        <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-[#ee7a1d]/10 dark:bg-[#ee7a1d]/20 mb-4">
+          <svg className="w-6 h-6 text-[#ee7a1d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+          </svg>
+        </div>
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2 group-hover:text-[#ee7a1d] transition-colors">
+          API Reference
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Complete REST and WebSocket API documentation with examples
+        </p>
+        <div className="flex items-center text-sm text-[#ee7a1d] dark:text-[#f6bc8a] group-hover:text-[#ee7a1d] font-medium">
+          Browse API docs
+          <svg className="ml-1 w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+    <a 
+      href="/integrations/google-pse" 
+      className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#ee7a1d] dark:hover:border-[#ee7a1d] bg-white dark:bg-[#1a1d27] overflow-hidden transition-all no-underline"
+    >
+      <div className="p-6">
+        <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-[#ee7a1d]/10 dark:bg-[#ee7a1d]/20 mb-4">
+          <svg className="w-6 h-6 text-[#ee7a1d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+          </svg>
+        </div>
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2 group-hover:text-[#ee7a1d] transition-colors">
+          Integrations
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Connect with Google PSE, AWS Rekognition, Gemini, and Cloudflare services
+        </p>
+        <div className="flex items-center text-sm text-[#ee7a1d] dark:text-[#f6bc8a] group-hover:text-[#ee7a1d] font-medium">
+          View integrations
+          <svg className="ml-1 w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
 
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="rounded-2xl bg-gradient-to-br from-[#ee7a1d] to-[#f6bc8a] dark:from-[#1a1d27] dark:to-[#242838] p-8 sm:p-12 border dark:border-[#27272a]">
+    <div className="max-w-3xl mx-auto text-center">
+      <h2 className="text-2xl sm:text-3xl font-bold text-white dark:text-gray-100 mb-4">
+        Ready to Get Started?
+      </h2>
+      <p className="text-lg text-white/90 dark:text-gray-300 mb-6">
+        Start finding visual connections between public figures with Connected's AI-powered investigation system
+      </p>
+      <div className="flex flex-col sm:flex-row justify-center gap-4">
+        <a 
+          href="/quickstart" 
+          className="inline-flex items-center justify-center px-6 py-3 bg-white dark:bg-[#242838] text-[#ee7a1d] dark:text-[#f6bc8a] font-semibold rounded-lg hover:bg-gray-100 dark:hover:bg-[#2a2e42] transition-colors"
+        >
+          Start Building
+          <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </a>
+        <a 
+          href="https://github.com/nintang/cf_ai_connected" 
+          className="inline-flex items-center justify-center px-6 py-3 border-2 border-white/30 dark:border-gray-600 bg-white/10 dark:bg-[#242838]/50 text-white dark:text-gray-200 font-semibold rounded-lg hover:bg-white/20 dark:hover:bg-[#242838] transition-colors"
+        >
+          View on GitHub
+        </a>
+      </div>
+    </div>
+  </div>
+</div>

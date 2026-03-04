@@ -1,0 +1,146 @@
+---
+title: Introduction
+description: Connected is an AI-powered visual degrees of separation finder that discovers evidence-backed connections between public figures using live image search and face recognition.
+---
+
+# Introduction to Connected
+
+Connected is a chat-first investigation system that finds **visual degrees of separation** between public figures using live image search, celebrity face verification, and AI-guided reasoning.
+
+## What It Does
+
+Given two public figures (e.g., "Elon Musk" and "Beyonce"), Connected returns a **verified path** with:
+
+- **Evidence-backed connections** - Images where both people appear together
+- **Confidence scores** - Based on face recognition with ≥80% threshold
+- **Real-time streaming progress** - Live updates via chat interface
+- **Interactive graph visualization** - Visual representation of the connection network
+
+Every connection is backed by **visual evidence** - no hallucinated relationships.
+
+## How It Works
+
+Connected uses a multi-phase investigation pipeline:
+
+<Steps>
+  <Step title="Research Phase">
+    Suggests potential bridge figures who might connect the two targets
+  </Step>
+  
+  <Step title="Discovery Phase">
+    Searches for images of candidate figures using Google Programmable Search Engine
+  </Step>
+  
+  <Step title="Selection Phase">
+    Ranks candidates strategically based on likelihood of connection
+  </Step>
+  
+  <Step title="Verification Phase">
+    Uses AWS Rekognition to verify faces in images and confirm connections
+  </Step>
+  
+  <Step title="Expansion Phase">
+    Extends the path and backtracks if needed until a connection is found
+  </Step>
+</Steps>
+
+<Note>
+The system enforces a maximum of **6 degrees of separation** and requires **≥80% confidence** for face detection.
+</Note>
+
+## Key Features
+
+### Visual Evidence Verification
+
+Every connection must be backed by photographic evidence where both people appear in the same image. The system:
+
+1. Fetches images using Google Programmable Search Engine
+2. Filters out collages and montages using Gemini Flash vision model
+3. Runs AWS Rekognition celebrity detection on real photos
+4. Validates that both targets are detected with ≥80% confidence
+
+### Real-Time Streaming
+
+The investigation progress is streamed in real-time to the chat interface using Cloudflare Durable Objects, providing:
+
+- Live status updates
+- Discovery progress
+- Evidence found notifications
+- Final path visualization
+
+### Confidence Scoring
+
+Connections are scored based on facial recognition confidence:
+
+```
+Per-Image Score = min(confidence_A, confidence_B)
+Edge Confidence = max(per_image_score across all images)
+Path Confidence = min(edge_confidence along path)
+```
+
+### Interactive Graph Visualization
+
+Built with Sigma.js and Graphology, the graph visualization shows:
+
+- Nodes representing public figures
+- Edges representing verified connections
+- Force-directed layout for optimal viewing
+- Clickable nodes to view evidence images
+
+## Architecture
+
+Connected is built on the Cloudflare developer platform for a serverless, globally distributed architecture:
+
+| Service | Purpose |
+|---------|----------|
+| **Cloudflare Workers** | API orchestration & business logic |
+| **Cloudflare Workflows** | Investigation state machine with durable execution |
+| **Cloudflare Durable Objects** | Real-time WebSocket streaming |
+| **Cloudflare KV** | Session state & rate limiting |
+| **Cloudflare Pages** | Next.js frontend hosting |
+
+<Note>
+Cloudflare's edge network provides sub-50ms cold starts and runs code closest to users in 300+ locations worldwide.
+</Note>
+
+## Tech Stack
+
+### Frontend
+- **Next.js 15** - React 18 framework with App Router
+- **Tailwind CSS 4** - Utility-first styling
+- **Radix UI** - Accessible component library
+- **Sigma.js** - Force-directed graph visualization
+
+### Backend
+- **Cloudflare Workers** - Serverless orchestration
+- **Cloudflare Workflows** - Durable state machine
+- **Cloudflare KV** - Key-value storage
+- **Cloudflare Durable Objects** - Real-time streaming
+
+### AI & APIs
+- **Google Programmable Search Engine** - Image search
+- **AWS Rekognition** - Celebrity face detection
+- **Gemini 2.0 Flash** - Visual filtering and strategic planning
+- **OpenRouter** - Unified API access to Gemini models
+
+## Key Constraints
+
+<Warning>
+Connected operates under strict constraints to ensure accuracy:
+
+- **Maximum 6 hops** (degrees of separation)
+- **Confidence threshold ≥80%** for face detection
+- **Visual proof required** for every connection
+- **No preprocessing** - Graph is built on-demand per query
+</Warning>
+
+## Use Cases
+
+- **Social network research** - Discover unexpected connections between public figures
+- **Entertainment** - Find interesting paths between celebrities
+- **Education** - Demonstrate graph theory and social networks
+- **Journalism** - Research connections between notable individuals
+
+## What's Next?
+
+Ready to get started? Check out the [Quickstart Guide](/quickstart) to set up Connected locally, or dive into the [Installation Guide](/installation) for detailed setup instructions.

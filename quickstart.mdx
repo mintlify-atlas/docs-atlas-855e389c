@@ -1,80 +1,323 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get Connected up and running in minutes with this step-by-step guide to clone, install, configure, and launch the application.
 ---
 
-## Get started in three steps
+# Quickstart Guide
 
-Get your documentation site running locally and make your first customization.
+This guide will help you get Connected running locally in minutes.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+Before you begin, ensure you have:
 
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+- **Node.js 18+** installed on your machine
+- **pnpm 8+** package manager ([Install pnpm](https://pnpm.io/installation))
+- A **Cloudflare account** ([Sign up for free](https://dash.cloudflare.com/sign-up))
+- API keys for external services (we'll set these up next)
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+Connected is built as a monorepo using pnpm workspaces. Make sure to use pnpm instead of npm or yarn.
+</Note>
+
+## Step-by-Step Setup
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/nintang/cf_ai_connected.git
+    cd cf_ai_connected
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    Install all dependencies for the monorepo:
+    
+    ```bash
+    pnpm install
+    ```
+    
+    This will install dependencies for all packages and applications in the workspace.
+  </Step>
+
+  <Step title="Build Shared Packages">
+    Build the shared packages that the apps depend on:
+    
+    ```bash
+    pnpm build
+    ```
+    
+    This builds the `@visual-degrees/contracts`, `@visual-degrees/core`, and `@visual-degrees/integrations` packages.
+  </Step>
+
+  <Step title="Set Up API Keys">
+    Create a `.dev.vars` file in the `apps/worker` directory:
+    
+    ```bash
+    touch apps/worker/.dev.vars
+    ```
+    
+    Add your API credentials:
+    
+    ```env apps/worker/.dev.vars
+    # Google Programmable Search Engine
+    GOOGLE_API_KEY=your_google_api_key
+    GOOGLE_CX=your_search_engine_id
+
+    # AWS Rekognition
+    AWS_ACCESS_KEY_ID=your_aws_access_key
+    AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+
+    # OpenRouter (Gemini 2.0 Flash)
+    OPENROUTER_API_KEY=your_openrouter_key
+    OPENROUTER_MODEL=google/gemini-2.5-flash-lite
+
+    # Gemini (optional fallback)
+    GEMINI_API_KEY=your_gemini_key
+    ```
+    
+    <Warning>
+    Never commit `.dev.vars` to version control. It's already in `.gitignore` but double-check before pushing changes.
+    </Warning>
+  </Step>
+
+  <Step title="Start the Worker">
+    Open a terminal and start the Cloudflare Worker:
+    
+    ```bash
+    cd apps/worker
+    pnpm dev
+    ```
+    
+    The worker will start at `http://localhost:8787`
+  </Step>
+
+  <Step title="Start the Web App">
+    Open another terminal and start the Next.js frontend:
+    
+    ```bash
+    cd apps/web
+    pnpm dev
+    ```
+    
+    The web app will start at `http://localhost:3000`
+  </Step>
+
+  <Step title="Try Your First Investigation">
+    Open your browser to `http://localhost:3000` and enter a query like:
+    
+    ```
+    Connect Elon Musk to Beyonce
+    ```
+    
+    Watch as the system:
+    - Suggests bridge figures
+    - Searches for images
+    - Verifies faces in photos
+    - Builds the connection path
+    - Displays the interactive graph
+  </Step>
+</Steps>
+
+## Getting API Keys
+
+Here's how to obtain the required API keys:
+
+### Google Programmable Search Engine
+
+<Steps>
+  <Step title="Create a Custom Search Engine">
+    1. Go to [Google Programmable Search Engine](https://programmablesearchengine.google.com/)
+    2. Click **Add** to create a new search engine
+    3. Configure it to search the entire web
+    4. Copy the **Search Engine ID** (CX)
+  </Step>
+  
+  <Step title="Get API Key">
+    1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+    2. Enable the **Custom Search API**
+    3. Create credentials (API Key)
+    4. Copy your API key
+  </Step>
+</Steps>
+
+### AWS Rekognition
+
+<Steps>
+  <Step title="Create IAM User">
+    1. Go to [AWS IAM Console](https://console.aws.amazon.com/iam/)
+    2. Create a new IAM user
+    3. Attach the **AmazonRekognitionFullAccess** policy
+  </Step>
+  
+  <Step title="Generate Access Keys">
+    1. Go to the user's **Security credentials** tab
+    2. Create access key
+    3. Copy the **Access Key ID** and **Secret Access Key**
+  </Step>
+</Steps>
+
+<Note>
+AWS Rekognition's `RecognizeCelebrities` API is used to detect and identify celebrities in images.
+</Note>
+
+### OpenRouter
+
+<Steps>
+  <Step title="Sign Up">
+    1. Go to [OpenRouter](https://openrouter.ai/)
+    2. Sign up or log in
+    3. Add credits to your account
+  </Step>
+  
+  <Step title="Get API Key">
+    1. Go to [Keys](https://openrouter.ai/keys)
+    2. Create a new API key
+    3. Copy your key
+  </Step>
+</Steps>
+
+<Note>
+OpenRouter provides unified access to multiple AI models including Gemini 2.0 Flash with web search capabilities.
+</Note>
+
+## Project Structure
+
+Understanding the monorepo structure:
+
+```
+cf_ai_connected/
+├── apps/
+│   ├── web/                    # Next.js chat UI
+│   │   ├── src/
+│   │   │   ├── app/           # Next.js app router
+│   │   │   ├── components/    # UI components
+│   │   │   ├── hooks/         # React hooks
+│   │   │   └── lib/           # Utilities
+│   │   └── package.json
+│   │
+│   └── worker/                 # Cloudflare Worker
+│       ├── src/
+│       │   ├── index.ts       # API routes
+│       │   ├── workflows/     # Investigation state machine
+│       │   ├── durable-objects/ # Real-time streaming
+│       │   └── tools/         # Service integrations
+│       └── wrangler.toml
+│
+├── packages/
+│   ├── contracts/             # Shared TypeScript types
+│   ├── core/                  # Investigation logic
+│   └── integrations/          # External API clients
+│
+└── package.json               # Root workspace config
+```
+
+## API Endpoints
+
+Once running, the worker exposes these endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/chat/query` | POST | Start an investigation |
+| `/api/chat/stream/:runId` | GET | SSE event stream |
+| `/api/chat/events/:runId` | GET | Poll-based events |
+| `/api/chat/parse` | POST | Parse natural language query |
+| `/api/graph` | GET | Get full verified graph |
+| `/api/graph/path` | GET | Get shortest path between nodes |
+| `/api/health` | GET | Service health check |
+
+## Testing the API
+
+You can test the API directly using curl:
+
+```bash
+# Start an investigation
+curl -X POST http://localhost:8787/api/chat/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Connect Elon Musk to Beyonce",
+    "sourceId": "elon-musk",
+    "targetId": "beyonce"
+  }'
+
+# Check health
+curl http://localhost:8787/api/health
+```
+
+## Common Issues
+
+### Port Already in Use
+
+If port 3000 or 8787 is already in use:
+
+```bash
+# For web app
+cd apps/web
+PORT=3001 pnpm dev
+
+# For worker, edit wrangler.toml and add:
+# [dev]
+# port = 8788
+```
+
+### Build Errors
+
+If you encounter build errors:
+
+```bash
+# Clean all build artifacts
+find . -name "node_modules" -type d -prune -exec rm -rf '{}' +
+find . -name "dist" -type d -prune -exec rm -rf '{}' +
+find . -name ".turbo" -type d -prune -exec rm -rf '{}' +
+
+# Reinstall and rebuild
+pnpm install
+pnpm build
+```
+
+### API Key Issues
+
+<Warning>
+Make sure `.dev.vars` is in the `apps/worker` directory, not the root. The worker needs access to these environment variables.
+</Warning>
+
+## Next Steps
+
+Now that you have Connected running:
+
+- Read the [Installation Guide](/installation) for detailed configuration options
+- Explore the architecture diagrams in the source repository
+- Try different queries to see how the system finds connections
+- Check out the source code to understand the implementation
+
+## Deployment
+
+Ready to deploy to production? See the deployment section:
+
+<CodeGroup>
+
+```bash Deploy Worker
+cd apps/worker
+
+# Add secrets to Cloudflare
+echo "your_google_api_key" | wrangler secret put GOOGLE_API_KEY
+echo "your_aws_access_key" | wrangler secret put AWS_ACCESS_KEY_ID
+echo "your_aws_secret_key" | wrangler secret put AWS_SECRET_ACCESS_KEY
+echo "your_openrouter_key" | wrangler secret put OPENROUTER_API_KEY
+
+# Deploy
+pnpm deploy
+```
+
+```bash Deploy Web App
+cd apps/web
+
+# Set worker URL and deploy to Cloudflare Pages
+NEXT_PUBLIC_WORKER_URL=https://your-worker.workers.dev pnpm deploy
+```
+
+</CodeGroup>
+
+<Note>
+The deploy commands use `@opennextjs/cloudflare` to build and deploy the Next.js app to Cloudflare Pages.
 </Note>

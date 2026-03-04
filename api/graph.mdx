@@ -1,0 +1,316 @@
+---
+title: "Graph Endpoints"
+description: "Query the social connection graph for nodes, edges, and paths"
+---
+
+## GET /api/graph
+
+Retrieve the complete social connection graph for visualization.
+
+### Response
+
+<ResponseField name="nodes" type="array">
+  Array of GraphNode objects representing people in the network
+</ResponseField>
+
+<ResponseField name="edges" type="array">
+  Array of GraphEdge objects representing verified connections
+</ResponseField>
+
+<ResponseField name="evidence" type="array">
+  Array of evidence records with image URLs and metadata
+</ResponseField>
+
+### GraphNode Schema
+
+<ResponseField name="id" type="string">
+  Unique node identifier (normalized person name)
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Display name of the person
+</ResponseField>
+
+### GraphEdge Schema
+
+<ResponseField name="id" type="string">
+  Unique edge identifier
+</ResponseField>
+
+<ResponseField name="from" type="string">
+  Source node ID
+</ResponseField>
+
+<ResponseField name="to" type="string">
+  Target node ID
+</ResponseField>
+
+<ResponseField name="edgeConfidence" type="number">
+  Connection confidence score (0-100)
+</ResponseField>
+
+<ResponseField name="evidenceRefs" type="array">
+  Array of evidence IDs supporting this connection
+</ResponseField>
+
+### Example Request
+
+```bash
+curl https://your-worker.workers.dev/api/graph
+```
+
+### Example Response
+
+```json
+{
+  "nodes": [
+    {
+      "id": "elon-musk",
+      "name": "Elon Musk"
+    },
+    {
+      "id": "jay-z",
+      "name": "Jay-Z"
+    },
+    {
+      "id": "beyonce",
+      "name": "Beyonce"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "from": "elon-musk",
+      "to": "jay-z",
+      "edgeConfidence": 95.2,
+      "evidenceRefs": ["evidence-1", "evidence-2"]
+    },
+    {
+      "id": "edge-2",
+      "from": "jay-z",
+      "to": "beyonce",
+      "edgeConfidence": 98.7,
+      "evidenceRefs": ["evidence-3", "evidence-4"]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "evidence-1",
+      "imageUrl": "https://example.com/image1.jpg",
+      "thumbnailUrl": "https://example.com/thumb1.jpg",
+      "contextUrl": "https://example.com/article1",
+      "title": "Elon Musk and Jay-Z at Tech Summit"
+    }
+  ]
+}
+```
+
+### Empty Graph Response
+
+If no connections have been discovered yet (or on database error):
+
+```json
+{
+  "nodes": [],
+  "edges": [],
+  "evidence": []
+}
+```
+
+---
+
+## GET /api/graph/stats
+
+Get statistical summary of the connection graph.
+
+### Response
+
+<ResponseField name="nodeCount" type="number">
+  Total number of people in the graph
+</ResponseField>
+
+<ResponseField name="edgeCount" type="number">
+  Total number of verified connections
+</ResponseField>
+
+<ResponseField name="avgConfidence" type="number">
+  Average confidence score across all connections (0-100)
+</ResponseField>
+
+### Example Request
+
+```bash
+curl https://your-worker.workers.dev/api/graph/stats
+```
+
+### Example Response
+
+```json
+{
+  "nodeCount": 47,
+  "edgeCount": 82,
+  "avgConfidence": 91.3
+}
+```
+
+### Empty Graph Stats
+
+If the graph is empty or database is not initialized:
+
+```json
+{
+  "nodeCount": 0,
+  "edgeCount": 0,
+  "avgConfidence": 0
+}
+```
+
+---
+
+## GET /api/graph/path
+
+Find the shortest cached path between two people in the existing graph.
+
+<Note>
+  This endpoint queries **only** the existing graph database. It does not perform new investigations. To discover new connections, use [POST /api/chat/query](/api/chat#post-apichatquery).
+</Note>
+
+### Query Parameters
+
+<ParamField query="from" type="string" required>
+  Starting person name
+</ParamField>
+
+<ParamField query="to" type="string" required>
+  Target person name
+</ParamField>
+
+### Response
+
+<ResponseField name="found" type="boolean">
+  Whether a path exists in the cached graph
+</ResponseField>
+
+<ResponseField name="path" type="array">
+  Ordered array of person names from source to target
+</ResponseField>
+
+<ResponseField name="pathIds" type="array">
+  Ordered array of node IDs
+</ResponseField>
+
+<ResponseField name="steps" type="array">
+  Array of edge objects describing each connection
+</ResponseField>
+
+<ResponseField name="hops" type="number">
+  Number of connections in the path (path.length - 1)
+</ResponseField>
+
+<ResponseField name="minConfidence" type="number">
+  Lowest confidence score along the path (weakest link)
+</ResponseField>
+
+<ResponseField name="error" type="string" optional>
+  Error message if path lookup failed
+</ResponseField>
+
+### Example Request
+
+```bash
+curl "https://your-worker.workers.dev/api/graph/path?from=Elon%20Musk&to=Beyonce"
+```
+
+### Example Response (Path Found)
+
+```json
+{
+  "found": true,
+  "path": ["Elon Musk", "Jay-Z", "Beyonce"],
+  "pathIds": ["elon-musk", "jay-z", "beyonce"],
+  "steps": [
+    {
+      "from": "Elon Musk",
+      "to": "Jay-Z",
+      "confidence": 95.2,
+      "edgeId": "edge-1"
+    },
+    {
+      "from": "Jay-Z",
+      "to": "Beyonce",
+      "confidence": 98.7,
+      "edgeId": "edge-2"
+    }
+  ],
+  "hops": 2,
+  "minConfidence": 95.2
+}
+```
+
+### Example Response (No Path)
+
+```json
+{
+  "found": false,
+  "path": [],
+  "pathIds": [],
+  "steps": [],
+  "hops": 0,
+  "minConfidence": 0
+}
+```
+
+### Example Response (Missing Parameters)
+
+Status: 400
+
+```json
+{
+  "error": "Missing 'from' or 'to' query parameter"
+}
+```
+
+---
+
+## GET /api/graph/ws
+
+WebSocket endpoint for real-time graph updates.
+
+### Description
+
+Establish a WebSocket connection to receive live updates when new connections are discovered and added to the graph.
+
+### Connection
+
+```javascript
+const ws = new WebSocket('wss://your-worker.workers.dev/api/graph/ws');
+
+ws.onmessage = (event) => {
+  const graphUpdate = JSON.parse(event.data);
+  console.log('Graph updated:', graphUpdate);
+};
+```
+
+### Message Format
+
+The WebSocket sends GraphPayload objects whenever the graph changes:
+
+```json
+{
+  "nodes": [...],
+  "edges": [...],
+  "evidence": [...]
+}
+```
+
+### Use Cases
+
+- **Live Visualization**: Update graph visualizations in real-time as investigations complete
+- **Dashboard Updates**: Keep statistics dashboards synchronized
+- **Collaboration**: Multiple users see the same graph state
+
+### Implementation Notes
+
+- Uses a global Durable Object (`GRAPH_BROADCASTER`) for managing connections
+- Broadcasts to all connected clients when graph changes
+- No authentication required (public graph data)

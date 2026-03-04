@@ -1,0 +1,424 @@
+---
+title: Investigation Events WebSocket
+description: Real-time streaming of investigation events via WebSocket at /api/chat/ws/:runId
+---
+
+The Investigation Events WebSocket provides real-time updates for active investigations. Each investigation gets a dedicated WebSocket connection identified by its `runId`, enabling isolated event streams and cursor-based replay for reconnections.
+
+## Connection Endpoint
+
+```
+GET /api/chat/ws/:runId
+```
+
+### URL Parameters
+
+- `runId` (required) - Unique investigation identifier from POST /api/chat/query
+
+### Query Parameters
+
+- `cursor` (optional) - Event index to replay from. Useful for reconnection scenarios.
+
+## WebSocket Upgrade
+
+The connection requires a standard WebSocket upgrade handshake:
+
+```typescript
+const runId = "your-investigation-run-id";
+const ws = new WebSocket(`wss://api.example.com/api/chat/ws/${runId}`);
+
+ws.onopen = () => {
+  console.log('Connected to investigation stream');
+};
+
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  handleMessage(message);
+};
+
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error);
+};
+
+ws.onclose = () => {
+  console.log('Connection closed');
+};
+```
+
+## Message Format
+
+All messages are JSON-encoded with the following structure:
+
+```typescript
+interface WebSocketMessage {
+  type: "event" | "complete" | "ping" | "pong" | "replay";
+  data?: InvestigationEvent;
+  index?: number;
+  cursor?: number;
+}
+```
+
+## Message Types
+
+### Event Messages
+
+The primary message type carries investigation events:
+
+```json
+{
+  "type": "event",
+  "data": {
+    "type": "step_start",
+    "runId": "abc123",
+    "timestamp": "2026-03-04T12:00:00.000Z",
+    "message": "Starting direct connection check",
+    "data": {
+      "stepId": "direct_check",
+      "stepNumber": 1,
+      "stepTitle": "Direct Check",
+      "stepStatus": "running"
+    }
+  },
+  "index": 0
+}
+```
+
+### Complete Messages
+
+Sent when the investigation finishes:
+
+```json
+{
+  "type": "complete"
+}
+```
+
+### Ping/Pong Messages
+
+For connection keep-alive:
+
+```typescript
+// Client sends
+ws.send(JSON.stringify({ type: "ping" }));
+
+// Server responds
+{
+  "type": "pong"
+}
+```
+
+## Event Types
+
+Investigation events include detailed progress information. See the InvestigationEvent type reference:
+
+### Phase Markers
+
+- `step_start` - Starting a new investigation step
+- `step_update` - Progress update within a step
+- `step_complete` - Step completed
+
+### Research Events
+
+- `research` - Starting a search query
+- `thinking` - LLM reasoning/thoughts
+- `strategy` - Initial strategy decision
+- `strategy_update` - Strategy updated based on findings
+
+### Discovery Events
+
+- `candidate_discovery` - Found candidate bridges
+- `llm_selection` - LLM selected next candidates
+- `image_result` - Per-image analysis result
+- `evidence` - Verified edge found
+
+### Path Events
+
+- `path_update` - Path has changed
+- `backtrack` - DFS backtracking to try another path
+
+### Completion Events
+
+- `final` - Investigation completed successfully
+- `no_path` - Investigation completed with no path
+- `error` - Error occurred
+
+## Event Data Structure
+
+Each event includes a `data` field with event-specific information:
+
+```typescript
+interface InvestigationEvent {
+  type: InvestigationEventType;
+  runId: string;
+  timestamp: string;
+  message: string;
+  data?: {
+    // Step information
+    stepId?: "direct_check" | "find_bridges" | "verify_bridge" | "connect_target";
+    stepNumber?: number;
+    stepTitle?: string;
+    stepStatus?: "pending" | "running" | "done" | "failed" | "skipped";
+    
+    // Connection details
+    fromPerson?: string;
+    toPerson?: string;
+    
+    // Search details
+    query?: string;
+    
+    // LLM reasoning
+    reasoning?: string;
+    thinkingChunk?: string;
+    thinkingComplete?: boolean;
+    
+    // Candidates
+    candidates?: Array<{
+      name: string;
+      score?: number;
+      coappearCount?: number;
+      reasoning?: string;
+    }>;
+    
+    // Image analysis
+    imageIndex?: number;
+    totalImages?: number;
+    imageUrl?: string;
+    status?: "collage" | "no_match" | "evidence" | "error";
+    celebrities?: Array<{ name: string; confidence: number }>;
+    
+    // Evidence
+    edge?: {
+      from: string;
+      to: string;
+      confidence: number;
+      evidenceUrl?: string;
+      thumbnailUrl?: string;
+      contextUrl?: string;
+    };
+    
+    // Path tracking
+    path?: string[];
+    hopDepth?: number;
+    
+    // Final result
+    result?: VerifiedPath;
+  };
+}
+```
+
+## Reconnection and Replay
+
+The WebSocket supports cursor-based replay for handling disconnections:
+
+```typescript
+let lastEventIndex = 0;
+
+function connect(cursor = 0) {
+  const ws = new WebSocket(
+    `wss://api.example.com/api/chat/ws/${runId}?cursor=${cursor}`
+  );
+  
+  ws.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    
+    if (message.type === "event") {
+      lastEventIndex = message.index;
+      handleEvent(message.data);
+    } else if (message.type === "complete") {
+      console.log('Investigation complete');
+    }
+  };
+  
+  ws.onclose = () => {
+    // Reconnect from last received index
+    setTimeout(() => connect(lastEventIndex + 1), 1000);
+  };
+  
+  return ws;
+}
+
+const ws = connect();
+```
+
+## Manual Replay Request
+
+Clients can request replay of buffered events:
+
+```typescript
+ws.send(JSON.stringify({
+  type: "replay",
+  cursor: 10 // Replay from event index 10
+}));
+```
+
+## Complete Client Example
+
+```typescript
+class InvestigationStream {
+  private ws: WebSocket | null = null;
+  private runId: string;
+  private lastIndex = 0;
+  private onEvent: (event: InvestigationEvent) => void;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  
+  constructor(
+    runId: string,
+    onEvent: (event: InvestigationEvent) => void
+  ) {
+    this.runId = runId;
+    this.onEvent = onEvent;
+    this.connect();
+  }
+  
+  private connect(cursor = 0) {
+    const url = cursor > 0
+      ? `wss://api.example.com/api/chat/ws/${this.runId}?cursor=${cursor}`
+      : `wss://api.example.com/api/chat/ws/${this.runId}`;
+    
+    this.ws = new WebSocket(url);
+    
+    this.ws.onopen = () => {
+      console.log('Connected to investigation stream');
+      this.reconnectAttempts = 0;
+      
+      // Start ping interval
+      this.startPingInterval();
+    };
+    
+    this.ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      
+      if (message.type === "event") {
+        this.lastIndex = message.index;
+        this.onEvent(message.data);
+      } else if (message.type === "complete") {
+        console.log('Investigation complete');
+        this.close();
+      }
+    };
+    
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+    
+    this.ws.onclose = () => {
+      console.log('Connection closed');
+      this.attemptReconnect();
+    };
+  }
+  
+  private startPingInterval() {
+    setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 30000); // Ping every 30 seconds
+  }
+  
+  private attemptReconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('Max reconnection attempts reached');
+      return;
+    }
+    
+    this.reconnectAttempts++;
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    
+    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    setTimeout(() => this.connect(this.lastIndex + 1), delay);
+  }
+  
+  close() {
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+  }
+}
+
+// Usage
+const stream = new InvestigationStream(runId, (event) => {
+  console.log(`[${event.type}]`, event.message);
+  
+  if (event.type === "evidence") {
+    console.log('New edge discovered:', event.data?.edge);
+  } else if (event.type === "final") {
+    console.log('Path found:', event.data?.result);
+  }
+});
+```
+
+## Implementation Details
+
+### Durable Object Architecture
+
+Each WebSocket connection is backed by a Cloudflare Durable Object instance:
+
+- **Per-RunId Isolation**: Each investigation gets its own Durable Object instance
+- **Event Buffering**: All events are stored in Durable Object storage for replay
+- **Hibernation Support**: WebSocket connections can hibernate while maintaining state
+- **Automatic Cleanup**: Events are deleted 1 hour after investigation completion
+
+### Connection Flow
+
+1. Client requests WebSocket upgrade to `/api/chat/ws/:runId`
+2. Worker routes request to Durable Object instance for that runId
+3. Durable Object accepts WebSocket and sends buffered events (if cursor provided)
+4. Investigation workflow emits events to Durable Object via `/emit` endpoint
+5. Durable Object broadcasts events to all connected WebSocket clients
+6. Client receives real-time updates until investigation completes
+
+### Event Storage
+
+Events are stored with sequential indices:
+
+```
+event:0 -> { event: InvestigationEvent, index: 0 }
+event:1 -> { event: InvestigationEvent, index: 1 }
+event:2 -> { event: InvestigationEvent, index: 2 }
+...
+eventIndex -> 3
+isComplete -> false
+```
+
+This enables efficient cursor-based replay and late-joiner support.
+
+## Error Handling
+
+Handle these scenarios in your client:
+
+```typescript
+ws.onerror = (error) => {
+  // Log error and attempt reconnection
+  console.error('WebSocket error:', error);
+};
+
+ws.onclose = (event) => {
+  if (event.code === 1006) {
+    // Abnormal closure - reconnect with cursor
+    reconnect(lastEventIndex + 1);
+  } else if (event.code === 1000) {
+    // Normal closure - investigation complete
+    console.log('Stream ended normally');
+  }
+};
+```
+
+## Rate Limits
+
+WebSocket connections are not subject to the same rate limits as HTTP endpoints, but:
+
+- Maximum connection duration: 10 minutes
+- Maximum concurrent connections per runId: Limited by Durable Object capacity
+- Events are cleaned up 1 hour after investigation completion
+
+## Alternative: Server-Sent Events
+
+For browsers or clients that don't support WebSockets, use the SSE endpoint:
+
+```
+GET /api/chat/stream/:runId
+```
+
+See the [Chat API](/api/chat) documentation for SSE streaming details.

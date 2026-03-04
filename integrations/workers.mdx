@@ -1,0 +1,373 @@
+---
+title: Cloudflare Workers
+description: API orchestration and request handling for the Connected platform
+---
+
+## Overview
+
+Cloudflare Workers power the Connected API, handling all HTTP requests, WebSocket upgrades, and orchestrating the investigation workflow. The worker serves as the main entry point for all client interactions.
+
+## Configuration
+
+The worker is configured in `wrangler.toml`:
+
+```toml
+name = "visual-degrees-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+AWS_REGION = "us-east-1"
+ALLOWED_ORIGINS = "https://vd.nintang48.workers.dev,http://localhost:3000,http://localhost:3001"
+
+[ai]
+binding = "AI"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+```
+
+## Environment Bindings
+
+The worker has access to all Cloudflare services via bindings defined in `src/env.d.ts`:
+
+```typescript
+export interface Env {
+  // Bindings
+  AI: Ai;
+  INVESTIGATION_WORKFLOW: Workflow;
+  INVESTIGATION_EVENTS: KVNamespace;
+  RATE_LIMIT: KVNamespace;
+  GRAPH_DB: D1Database;
+  GRAPH_BROADCASTER: DurableObjectNamespace;
+  INVESTIGATION_EVENTS_BROADCASTER: DurableObjectNamespace;
+
+  // Environment variables
+  AWS_REGION: string;
+  GOOGLE_API_KEY: string;
+  GOOGLE_CX: string;
+  AWS_ACCESS_KEY_ID: string;
+  AWS_SECRET_ACCESS_KEY: string;
+  OPENROUTER_API_KEY: string;
+  ALLOWED_ORIGINS?: string;
+  WHITELISTED_IPS?: string;
+}
+```
+
+## API Endpoints
+
+The worker exposes the following HTTP endpoints:
+
+### Investigation Endpoints
+
+#### POST `/api/chat/query`
+Starts a new investigation between two people.
+
+**Request:**
+```json
+{
+  "personA": "Elon Musk",
+  "personB": "Taylor Swift"
+}
+```
+
+**Response:**
+```json
+{
+  "id": "workflow-instance-id",
+  "runId": "uuid",
+  "status": "started",
+  "personA": "Elon Musk",
+  "personB": "Taylor Swift"
+}
+```
+
+**Rate Limiting:**
+- Enforces 50 searches per day per IP
+- Returns `429 Too Many Requests` when limit exceeded
+- Whitelisted IPs bypass rate limits
+
+**Implementation:**
+```typescript
+// apps/worker/src/index.ts:199
+if (url.pathname === "/api/chat/query" && request.method === "POST") {
+  const clientIP = getClientIP(request);
+  const rateLimit = await checkRateLimit(env, clientIP);
+
+  if (!rateLimit.allowed) {
+    return new Response(JSON.stringify({
+      error: "Rate limit exceeded. You can perform 50 searches per day.",
+      remaining: 0,
+      resetAt: resetDate.toISOString(),
+    }), {
+      status: 429,
+      headers: {
+        "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+        "X-RateLimit-Remaining": "0",
+        "X-RateLimit-Reset": String(rateLimit.resetAt),
+      }
+    });
+  }
+
+  const instance = await env.INVESTIGATION_WORKFLOW.create({
+    params: { personA, personB, runId }
+  });
+  // ...
+}
+```
+
+#### POST `/api/chat/parse`
+Parses a natural language query using AI.
+
+**Request:**
+```json
+{
+  "query": "from Elon Musk to Beyonce"
+}
+```
+
+**Response:**
+```json
+{
+  "isValid": true,
+  "personA": "Elon Musk",
+  "personB": "Beyonce"
+}
+```
+
+### Real-Time Updates
+
+#### WebSocket `/api/chat/ws/:runId`
+Real-time investigation events via WebSocket (powered by Durable Objects).
+
+**Connection:**
+```typescript
+const ws = new WebSocket('wss://api.example.com/api/chat/ws/run-id');
+
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  // Handle event: message.data contains InvestigationEvent
+};
+```
+
+**Implementation:**
+```typescript
+// apps/worker/src/index.ts:142
+if (url.pathname.startsWith("/api/chat/ws/") && 
+    request.headers.get("Upgrade") === "websocket") {
+  const runId = url.pathname.split("/").pop();
+  const id = env.INVESTIGATION_EVENTS_BROADCASTER.idFromName(runId);
+  const stub = env.INVESTIGATION_EVENTS_BROADCASTER.get(id);
+  return stub.fetch(request);
+}
+```
+
+#### GET `/api/chat/stream/:runId`
+Server-Sent Events (SSE) stream for real-time updates.
+
+**Usage:**
+```typescript
+const eventSource = new EventSource('/api/chat/stream/run-id');
+
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Investigation event:', data);
+};
+```
+
+#### GET `/api/chat/events/:runId`
+Polling endpoint for investigation events.
+
+**Query Parameters:**
+- `cursor`: Optional timestamp to get events after a specific point
+
+### Graph Endpoints
+
+#### GET `/api/graph`
+Retrieve the full social graph for visualization.
+
+**Response:**
+```json
+{
+  "nodes": [
+    {
+      "id": "node_abc123",
+      "name": "Elon Musk",
+      "thumbnailUrl": "https://..."
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_abc123_def456",
+      "source": "node_abc123",
+      "target": "node_def456",
+      "confidence": 95.5,
+      "evidenceUrl": "https://...",
+      "thumbnailUrl": "https://..."
+    }
+  ]
+}
+```
+
+#### GET `/api/graph/stats`
+Graph statistics.
+
+**Response:**
+```json
+{
+  "nodeCount": 42,
+  "edgeCount": 56,
+  "avgConfidence": 87
+}
+```
+
+#### GET `/api/graph/path`
+Find cached shortest path between two people.
+
+**Query Parameters:**
+- `from`: Starting person name
+- `to`: Target person name
+
+#### WebSocket `/api/graph/ws`
+Real-time graph updates (new edges discovered).
+
+```typescript
+// apps/worker/src/index.ts:135
+if (url.pathname === "/api/graph/ws" && 
+    request.headers.get("Upgrade") === "websocket") {
+  const id = env.GRAPH_BROADCASTER.idFromName("global");
+  const stub = env.GRAPH_BROADCASTER.get(id);
+  return stub.fetch(request);
+}
+```
+
+### Health Check
+
+#### GET `/api/health`
+Tests all external service integrations.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "services": {
+    "googleSearch": {
+      "ok": true,
+      "message": "Found 10 images",
+      "latency": 342
+    },
+    "awsRekognition": {
+      "ok": true,
+      "message": "Detected 1 celebrities including Elon Musk",
+      "latency": 567
+    },
+    "openRouter": {
+      "ok": true,
+      "message": "Parsed: Elon Musk → Beyonce",
+      "latency": 234
+    }
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+## CORS Configuration
+
+The worker implements dynamic CORS headers based on allowed origins:
+
+```typescript
+// apps/worker/src/index.ts:27
+function getAllowedOrigins(env: Env): string[] {
+  if (env.ALLOWED_ORIGINS) {
+    return env.ALLOWED_ORIGINS.split(",").map(o => o.trim());
+  }
+  return DEFAULT_ALLOWED_ORIGINS;
+}
+
+function getCorsHeaders(request: Request, env: Env): Record<string, string> {
+  const allowedOrigins = getAllowedOrigins(env);
+  const origin = request.headers.get("Origin") || "";
+  const allowedOrigin = allowedOrigins.includes(origin) 
+    ? origin 
+    : allowedOrigins[0];
+
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
+```
+
+## Rate Limiting
+
+Rate limits are enforced at the worker level using KV storage:
+
+```typescript
+// apps/worker/src/index.ts:18
+const RATE_LIMIT_MAX = 50;
+const RATE_LIMIT_WINDOW = 24 * 60 * 60; // 24 hours
+
+async function checkRateLimit(
+  env: Env,
+  ip: string
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  if (isWhitelisted(env, ip)) {
+    return { allowed: true, remaining: 999999, resetAt: 0 };
+  }
+
+  const key = `ratelimit:${ip}`;
+  const data = await env.RATE_LIMIT.get(key);
+  
+  if (!data) {
+    const resetAt = now + RATE_LIMIT_WINDOW;
+    await env.RATE_LIMIT.put(key, JSON.stringify({ count: 1, resetAt }), {
+      expirationTtl: RATE_LIMIT_WINDOW,
+    });
+    return { allowed: true, remaining: RATE_LIMIT_MAX - 1, resetAt };
+  }
+  // ...
+}
+```
+
+See [KV documentation](/integrations/kv) for more details on rate limiting storage.
+
+## Client IP Detection
+
+```typescript
+// apps/worker/src/index.ts:118
+function getClientIP(request: Request): string {
+  return request.headers.get("CF-Connecting-IP") ||
+         request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
+         "unknown";
+}
+```
+
+## Architecture Role
+
+The Worker serves as the **orchestration layer** in the Connected architecture:
+
+1. **Request Handler**: Receives and validates all HTTP/WebSocket requests
+2. **Rate Limiter**: Enforces usage limits via KV storage
+3. **Workflow Dispatcher**: Triggers investigation workflows
+4. **Real-time Router**: Routes WebSocket connections to appropriate Durable Objects
+5. **Data Access**: Queries D1 database for graph data
+6. **CORS Gateway**: Manages cross-origin access
+
+## Deployment
+
+Deploy the worker using Wrangler:
+
+```bash
+cd apps/worker
+wrangler deploy
+```
+
+## Related Services
+
+- [Workflows](/integrations/workflows) - Investigation state machine
+- [Durable Objects](/integrations/durable-objects) - WebSocket streaming
+- [KV](/integrations/kv) - Rate limiting and session state
+- [D1](/integrations/d1) - Graph database

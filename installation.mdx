@@ -1,0 +1,537 @@
+---
+title: Installation
+description: Detailed installation instructions for Connected including prerequisites, dependencies, configuration, and troubleshooting.
+---
+
+# Installation Guide
+
+This guide provides detailed instructions for installing and configuring Connected, including all prerequisites, dependencies, and configuration options.
+
+## System Requirements
+
+### Required Software
+
+- **Node.js 18 or higher** - JavaScript runtime
+- **pnpm 8 or higher** - Fast, disk space efficient package manager
+- **Git** - Version control system
+
+<Note>
+Connected uses pnpm workspaces for monorepo management. Using npm or yarn is not recommended and may cause dependency resolution issues.
+</Note>
+
+### Installing Node.js
+
+If you don't have Node.js 18+ installed:
+
+<CodeGroup>
+
+```bash Using nvm (Recommended)
+# Install nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+
+# Install Node.js 18
+nvm install 18
+nvm use 18
+
+# Verify installation
+node --version
+```
+
+```bash Using Official Installer
+# Download from nodejs.org
+# Visit: https://nodejs.org/en/download/
+
+# After installation, verify:
+node --version
+```
+
+```bash Using Homebrew (macOS)
+brew install node@18
+
+# Verify installation
+node --version
+```
+
+</CodeGroup>
+
+### Installing pnpm
+
+Install pnpm globally:
+
+<CodeGroup>
+
+```bash Using npm
+npm install -g pnpm
+
+# Verify installation
+pnpm --version
+```
+
+```bash Using Homebrew (macOS)
+brew install pnpm
+
+# Verify installation
+pnpm --version
+```
+
+```bash Using Standalone Script
+curl -fsSL https://get.pnpm.io/install.sh | sh -
+
+# Verify installation
+pnpm --version
+```
+
+</CodeGroup>
+
+## Cloudflare Account Setup
+
+Connected runs on Cloudflare's platform. You'll need:
+
+<Steps>
+  <Step title="Create Cloudflare Account">
+    1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com/sign-up)
+    2. Sign up for a free account
+    3. Verify your email address
+  </Step>
+  
+  <Step title="Install Wrangler CLI">
+    Wrangler is Cloudflare's CLI tool for managing Workers:
+    
+    ```bash
+    pnpm install -g wrangler
+    ```
+  </Step>
+  
+  <Step title="Authenticate Wrangler">
+    Login to your Cloudflare account:
+    
+    ```bash
+    wrangler login
+    ```
+    
+    This will open a browser window for authentication.
+  </Step>
+</Steps>
+
+<Note>
+Cloudflare's free tier includes 100,000 Worker requests per day, which is sufficient for development and small-scale usage.
+</Note>
+
+## External API Configuration
+
+Connected requires API keys from three external services:
+
+### 1. Google Programmable Search Engine
+
+Used for finding images of public figures.
+
+<Steps>
+  <Step title="Enable Custom Search API">
+    1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+    2. Create a new project or select an existing one
+    3. Navigate to **APIs & Services** > **Library**
+    4. Search for "Custom Search API"
+    5. Click **Enable**
+  </Step>
+  
+  <Step title="Create API Credentials">
+    1. Go to **APIs & Services** > **Credentials**
+    2. Click **Create Credentials** > **API Key**
+    3. Copy your API key
+    4. (Optional) Restrict the key to Custom Search API only
+  </Step>
+  
+  <Step title="Create Search Engine">
+    1. Go to [Programmable Search Engine](https://programmablesearchengine.google.com/)
+    2. Click **Add** to create a new search engine
+    3. Under "Sites to search", select **Search the entire web**
+    4. Name your search engine (e.g., "Connected Image Search")
+    5. Click **Create**
+    6. Copy the **Search Engine ID** (CX)
+  </Step>
+</Steps>
+
+<Warning>
+Google's Custom Search API has a free tier of 100 queries per day. Beyond that, you'll need to enable billing. Check [pricing details](https://developers.google.com/custom-search/v1/overview) before running at scale.
+</Warning>
+
+### 2. AWS Rekognition
+
+Used for celebrity face detection and verification.
+
+<Steps>
+  <Step title="Create AWS Account">
+    1. Go to [AWS Console](https://aws.amazon.com/)
+    2. Sign up or log in
+    3. Complete account verification
+  </Step>
+  
+  <Step title="Create IAM User">
+    1. Navigate to [IAM Console](https://console.aws.amazon.com/iam/)
+    2. Click **Users** > **Add users**
+    3. Enter username (e.g., "connected-rekognition")
+    4. Select **Programmatic access**
+    5. Click **Next: Permissions**
+  </Step>
+  
+  <Step title="Attach Rekognition Policy">
+    1. Click **Attach existing policies directly**
+    2. Search for **AmazonRekognitionFullAccess**
+    3. Check the policy
+    4. Click **Next** through to **Create user**
+  </Step>
+  
+  <Step title="Save Access Keys">
+    1. Copy the **Access Key ID**
+    2. Copy the **Secret Access Key**
+    3. Store them securely (you won't be able to see the secret again)
+  </Step>
+</Steps>
+
+<Note>
+AWS Rekognition charges per image analyzed. The free tier includes 5,000 images per month for the first year. See [AWS Rekognition Pricing](https://aws.amazon.com/rekognition/pricing/) for details.
+</Note>
+
+### 3. OpenRouter (Gemini Access)
+
+Used for AI-powered visual filtering and strategic planning.
+
+<Steps>
+  <Step title="Create OpenRouter Account">
+    1. Go to [OpenRouter](https://openrouter.ai/)
+    2. Sign up with email or OAuth
+    3. Verify your account
+  </Step>
+  
+  <Step title="Add Credits">
+    1. Go to [Account](https://openrouter.ai/account)
+    2. Click **Add Credits**
+    3. Add at least $5 to start
+  </Step>
+  
+  <Step title="Generate API Key">
+    1. Go to [Keys](https://openrouter.ai/keys)
+    2. Click **Create Key**
+    3. Name it (e.g., "Connected")
+    4. Copy the API key
+  </Step>
+</Steps>
+
+<Note>
+Connected uses the `google/gemini-2.5-flash-lite` model through OpenRouter, which provides web search capabilities. Pricing is approximately $0.30 per investigation.
+</Note>
+
+### 4. Gemini API (Optional Fallback)
+
+Optional direct access to Google's Gemini API.
+
+<Steps>
+  <Step title="Get API Key">
+    1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+    2. Click **Create API Key**
+    3. Select a project or create a new one
+    4. Copy your API key
+  </Step>
+</Steps>
+
+## Installation Steps
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/nintang/cf_ai_connected.git
+cd cf_ai_connected
+```
+
+### 2. Install Dependencies
+
+Install all workspace dependencies:
+
+```bash
+pnpm install
+```
+
+This installs dependencies for:
+- Root workspace
+- `apps/web` (Next.js frontend)
+- `apps/worker` (Cloudflare Worker)
+- `packages/contracts` (Shared types)
+- `packages/core` (Business logic)
+- `packages/integrations` (API clients)
+
+<Note>
+The first install may take 2-3 minutes depending on your connection speed.
+</Note>
+
+### 3. Build Shared Packages
+
+Build the packages that apps depend on:
+
+```bash
+pnpm build
+```
+
+This compiles:
+- `@visual-degrees/contracts` → TypeScript type definitions
+- `@visual-degrees/core` → Investigation orchestration logic
+- `@visual-degrees/integrations` → External API clients
+
+### 4. Configure Environment Variables
+
+Create the worker environment configuration:
+
+```bash
+touch apps/worker/.dev.vars
+```
+
+Add your API credentials:
+
+```env apps/worker/.dev.vars
+# Google Programmable Search Engine
+GOOGLE_API_KEY=your_google_api_key_here
+GOOGLE_CX=your_search_engine_id_here
+
+# AWS Rekognition
+AWS_ACCESS_KEY_ID=your_aws_access_key_here
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key_here
+
+# OpenRouter (Gemini 2.0 Flash)
+OPENROUTER_API_KEY=your_openrouter_key_here
+OPENROUTER_MODEL=google/gemini-2.5-flash-lite
+
+# Gemini (optional fallback)
+GEMINI_API_KEY=your_gemini_key_here
+```
+
+<Warning>
+The `.dev.vars` file contains sensitive credentials. Never commit it to version control. It's already in `.gitignore` for safety.
+</Warning>
+
+## Configuration Options
+
+### Worker Configuration
+
+The worker is configured via `apps/worker/wrangler.toml`:
+
+```toml wrangler.toml
+name = "visual-degrees-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+AWS_REGION = "us-east-1"
+ALLOWED_ORIGINS = "http://localhost:3000,http://localhost:3001"
+
+# KV namespaces for session state and rate limiting
+[[kv_namespaces]]
+binding = "INVESTIGATION_EVENTS"
+id = "your_kv_namespace_id"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "your_rate_limit_namespace_id"
+
+# Workflows for investigation state machine
+[[workflows]]
+name = "investigation"
+binding = "INVESTIGATION_WORKFLOW"
+class_name = "InvestigationWorkflow"
+
+# Durable Objects for WebSocket streaming
+[durable_objects]
+bindings = [
+  { name = "INVESTIGATION_EVENTS_BROADCASTER", class_name = "InvestigationEventsBroadcaster" }
+]
+```
+
+<Note>
+For local development, the KV namespaces and Durable Objects are automatically created by Wrangler.
+</Note>
+
+### Web App Configuration
+
+The Next.js app connects to the worker via environment variable:
+
+```bash apps/web/.env.local
+NEXT_PUBLIC_WORKER_URL=http://localhost:8787
+```
+
+For production:
+
+```bash
+NEXT_PUBLIC_WORKER_URL=https://your-worker.workers.dev
+```
+
+## Verification
+
+Verify your installation:
+
+```bash
+# Check Node.js version
+node --version
+# Should output v18.x.x or higher
+
+# Check pnpm version
+pnpm --version
+# Should output 8.x.x or higher
+
+# Check if packages built successfully
+ls packages/contracts/dist
+ls packages/core/dist
+ls packages/integrations/dist
+# Each should show compiled JavaScript files
+
+# Check Wrangler authentication
+wrangler whoami
+# Should show your Cloudflare account email
+```
+
+## Running the Application
+
+### Development Mode
+
+Start both the worker and web app:
+
+<CodeGroup>
+
+```bash Terminal 1 - Worker
+cd apps/worker
+pnpm dev
+
+# Worker will start at http://localhost:8787
+```
+
+```bash Terminal 2 - Web App
+cd apps/web
+pnpm dev
+
+# Web app will start at http://localhost:3000
+```
+
+</CodeGroup>
+
+### Production Mode
+
+Build and start in production mode:
+
+```bash
+# Build everything
+pnpm build
+
+# Start web app in production mode
+cd apps/web
+pnpm build
+pnpm start
+```
+
+## Troubleshooting
+
+### Package Installation Issues
+
+**Problem**: pnpm install fails with dependency resolution errors
+
+**Solution**:
+```bash
+# Clear pnpm cache
+pnpm store prune
+
+# Remove lockfile and reinstall
+rm pnpm-lock.yaml
+pnpm install
+```
+
+### Build Failures
+
+**Problem**: Build fails with TypeScript errors
+
+**Solution**:
+```bash
+# Clean all build artifacts
+pnpm -r exec rm -rf dist
+
+# Rebuild from scratch
+pnpm build
+```
+
+### Worker Won't Start
+
+**Problem**: `wrangler dev` fails with authentication error
+
+**Solution**:
+```bash
+# Logout and login again
+wrangler logout
+wrangler login
+```
+
+**Problem**: Worker fails with "Missing binding" error
+
+**Solution**: Check that `wrangler.toml` has all required bindings and your `.dev.vars` file is in the correct location (`apps/worker/.dev.vars`).
+
+### API Key Issues
+
+**Problem**: Investigation fails with "Invalid API key" error
+
+**Solution**:
+1. Verify all API keys are correct in `.dev.vars`
+2. Check that the file is in `apps/worker/.dev.vars`, not the root
+3. Restart the worker after making changes to `.dev.vars`
+4. Test each API key individually using curl or their respective consoles
+
+**Problem**: AWS Rekognition returns "AccessDenied" error
+
+**Solution**: Ensure the IAM user has the `AmazonRekognitionFullAccess` policy attached. The `RecognizeCelebrities` API specifically requires this permission.
+
+### Port Conflicts
+
+**Problem**: Port 3000 or 8787 already in use
+
+**Solution**:
+```bash
+# For web app, use different port
+PORT=3001 pnpm dev
+
+# For worker, edit wrangler.toml:
+[dev]
+port = 8788
+```
+
+### Rate Limiting
+
+**Problem**: Investigation fails with "Rate limit exceeded"
+
+**Solution**: The worker implements rate limiting (10 searches per hour per IP by default). Wait for the limit to reset or adjust the configuration in the worker code.
+
+## Performance Optimization
+
+### Development
+
+- Use `pnpm dev` instead of `pnpm start` for hot reloading
+- Keep terminal windows for worker and web app open side by side
+- Use browser DevTools Network tab to monitor API calls
+
+### Production
+
+- Enable Cloudflare caching for static assets
+- Use Cloudflare's Edge Cache for API responses where appropriate
+- Monitor Worker analytics in Cloudflare Dashboard
+- Set up alerts for rate limit exhaustion
+
+## Next Steps
+
+Now that you have Connected installed:
+
+- Follow the [Quickstart Guide](/quickstart) to run your first investigation
+- Explore the monorepo structure in the source code
+- Read about the architecture in the project README
+- Customize the confidence threshold or max hops in the worker configuration
+
+## Additional Resources
+
+- [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
+- [Next.js Documentation](https://nextjs.org/docs)
+- [pnpm Workspace Guide](https://pnpm.io/workspaces)
+- [Google Custom Search API](https://developers.google.com/custom-search/v1/overview)
+- [AWS Rekognition Documentation](https://docs.aws.amazon.com/rekognition/)
+- [OpenRouter Documentation](https://openrouter.ai/docs)

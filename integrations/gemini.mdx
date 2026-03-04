@@ -1,0 +1,475 @@
+---
+title: "Gemini Integration"
+description: "Visual filtering and strategic planning using Google's Gemini models"
+---
+
+## Overview
+
+The Gemini integration provides two critical services in the Connected pipeline:
+
+1. **Visual Filtering** (`GeminiVisualFilterClient`) - Filters out collages, photo grids, and composite images
+2. **LLM Planning** (`GeminiPlannerClient`) - Provides strategic intelligence for search optimization
+
+## Configuration
+
+### Environment Variables
+
+```bash
+GEMINI_API_KEY=your_gemini_api_key              # Required: Google Gemini API key
+GEMINI_MODEL=gemini-2.0-flash                   # Optional: Model name (default: gemini-2.0-flash)
+GEMINI_GATEWAY_URL=https://custom-gateway.com   # Optional: Custom API gateway
+```
+
+### Setup Requirements
+
+1. **Get a Gemini API Key**
+   - Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+   - Create a new API key
+   - Free tier includes generous quotas
+
+2. **Enable the Generative Language API** (if using GCP project)
+   - Go to Google Cloud Console
+   - Enable "Generative Language API"
+
+## Visual Filtering
+
+### Purpose
+
+The visual filter prevents false connections by detecting composite images before they reach Rekognition:
+
+```typescript
+// ❌ These should be filtered OUT:
+- Photo collages (multiple separate photos in one image)
+- Split-screen comparisons (side-by-side panels)
+- Before/after grids
+- Memes with multiple panels
+- News graphics combining separate photos
+
+// ✓ These should PASS:
+- Single photos with multiple people together
+- Real-world scenes showing physical co-presence
+- Group photos at events
+```
+
+### Usage
+
+```typescript
+import { createGeminiClient } from '@visual-degrees/integrations';
+
+const client = createGeminiClient();
+
+const result = await client.verifyVisualCopresence(
+  'https://example.com/image.jpg'
+);
+
+if (result.isValidScene) {
+  console.log('✓ Valid scene - proceed to Rekognition');
+} else {
+  console.log('✗ Composite image:', result.reason);
+  // Skip this image
+}
+```
+
+### Response Format
+
+```typescript
+interface VisualVerificationResult {
+  isValidScene: boolean;    // true = single scene, false = composite
+  reason: string;           // Brief explanation of decision
+  rawResponse: string;      // Full LLM response
+}
+```
+
+### Example Results
+
+```typescript
+// Valid scene
+{
+  isValidScene: true,
+  reason: "Single photograph showing two people at an event together",
+  rawResponse: "{...}"
+}
+
+// Composite image
+{
+  isValidScene: false,
+  reason: "Split-screen comparison with visible dividing line between two separate photos",
+  rawResponse: "{...}"
+}
+```
+
+### Configuration Options
+
+```typescript
+import { GeminiVisualFilterClient } from '@visual-degrees/integrations';
+
+const client = new GeminiVisualFilterClient({
+  apiKey: process.env.GEMINI_API_KEY,
+  model: 'gemini-2.0-flash',        // Model to use
+  gatewayUrl: undefined,            // Optional custom gateway
+  fetchTimeout: 10000,              // Image fetch timeout (ms)
+  maxImageSize: 10485760            // Max image size (10MB)
+});
+```
+
+## LLM Planning
+
+The `GeminiPlannerClient` provides strategic intelligence to guide the search:
+
+### 1. Next Expansion Selection
+
+Chooses the best candidates to explore from the current frontier:
+
+```typescript
+import { createGeminiPlannerClient } from '@visual-degrees/integrations';
+
+const planner = createGeminiPlannerClient();
+
+const decision = await planner.selectNextExpansion({
+  personA: 'Taylor Swift',
+  personB: 'LeBron James',
+  frontier: ['Travis Kelce'],
+  candidates: [
+    { name: 'Patrick Mahomes', coappearCount: 15, bestCoappearConfidence: 95 },
+    { name: 'Kim Kardashian', coappearCount: 3, bestCoappearConfidence: 85 },
+    { name: 'Drake', coappearCount: 8, bestCoappearConfidence: 90 }
+  ],
+  hopUsed: 1,
+  hopLimit: 6,
+  confidenceThreshold: 80,
+  budgets: { images: 100, searches: 50 },
+  verifiedEdges: [],
+  failedCandidates: []
+});
+
+console.log(decision.nextCandidates);   // ['Drake'] - best strategic choice
+console.log(decision.searchQueries);    // ['Drake LeBron James', ...]
+console.log(decision.narration);        // 'Exploring music industry connections'
+console.log(decision.reason);           // Strategic justification
+```
+
+### 2. Connection Research
+
+Researches potential connection paths between two people:
+
+```typescript
+const research = await planner.researchConnection(
+  'Donald Trump',
+  'Juice WRLD'
+);
+
+console.log(research.summary);
+// "Connection likely through entertainment/music industry events"
+
+console.log(research.industries);
+// ['entertainment', 'music', 'politics', 'media']
+
+console.log(research.eventTypes);
+// ['award shows', 'political fundraisers', 'celebrity galas']
+
+console.log(research.bridgeTypes);
+// ['rappers', 'music producers', 'entertainment moguls']
+
+console.log(research.suggestedQueries);
+// ['Donald Trump Kanye West', 'Donald Trump rapper', ...]
+
+console.log(research.confidence);  // 0-100
+```
+
+### 3. Bridge Candidate Suggestions
+
+Suggests specific real people who might connect two individuals:
+
+```typescript
+const suggestions = await planner.suggestBridgeCandidates(
+  'Taylor Swift',
+  'LeBron James'
+);
+
+for (const suggestion of suggestions) {
+  console.log(suggestion.name);            // "Drake"
+  console.log(suggestion.reasoning);       // Strategic explanation
+  console.log(suggestion.connectionToA);   // "Collaborated on music"
+  console.log(suggestion.connectionToB);   // "Friend and frequent courtside guest"
+  console.log(suggestion.confidence);      // 0-100
+}
+```
+
+### 4. Strategic Candidate Ranking
+
+Re-ranks candidates based on strategic value:
+
+```typescript
+const ranking = await planner.rankCandidatesStrategically(
+  'Travis Kelce',      // Current frontier
+  'LeBron James',      // Target
+  candidates,          // List of candidates from frontier images
+  research             // Previous research results
+);
+
+for (const ranked of ranking.rankedCandidates) {
+  console.log(ranked.name);              // Candidate name
+  console.log(ranked.strategicScore);    // 0-100 strategic value
+  console.log(ranked.reasoning);         // Why this candidate is valuable
+  console.log(ranked.suggestedQueries);  // Specific search queries
+}
+
+console.log(ranking.strategy);    // Overall strategy explanation
+console.log(ranking.hypothesis);  // Best path hypothesis
+```
+
+### 5. Smart Query Generation
+
+Generates targeted queries based on context:
+
+```typescript
+const queries = await planner.generateSmartQueries(
+  'Donald Trump',     // Frontier
+  'Juice WRLD',       // Target
+  research            // Research context
+);
+
+console.log(queries);
+// [
+//   'Donald Trump Juice WRLD',
+//   'Donald Trump Juice WRLD together',
+//   'Donald Trump Kanye West',
+//   'Donald Trump rapper',
+//   'Donald Trump hip hop artist',
+//   'Donald Trump Lil Wayne'
+// ]
+```
+
+### 6. Frontier Discovery Queries
+
+Generates contextual queries for discovering new candidates:
+
+```typescript
+const queries = await planner.generateFrontierQueries('Taylor Swift');
+
+console.log(queries);
+// [
+//   'Taylor Swift Grammy awards',
+//   'Taylor Swift concert backstage',
+//   'Taylor Swift music video',
+//   'Taylor Swift red carpet',
+//   'Taylor Swift with celebrities'
+// ]
+```
+
+## Image Requirements
+
+### Visual Filter Image Validation
+
+```typescript
+// Supported formats
+✓ JPEG (.jpg, .jpeg)
+✓ PNG (.png)
+✓ GIF (.gif)
+✓ WebP (.webp)
+
+// Size limits
+Maximum: 10 MB (default, configurable)
+Minimum: ~100 bytes
+
+// Validation checks
+✓ HTTP/HTTPS URLs only
+✓ Valid Content-Type header
+✓ Magic bytes verification (JPEG: FF D8, PNG: 89 50 4E 47, etc.)
+✓ Not HTML error pages
+✓ Within size limits
+```
+
+## Rate Limits and Quotas
+
+### Gemini API Limits (Free Tier)
+
+- **Requests per minute**: 15 RPM
+- **Requests per day**: 1,500 RPD
+- **Tokens per minute**: 1 million TPM
+- **Tokens per day**: 50 million TPD
+
+### Paid Tier
+
+Higher limits available with Google Cloud billing enabled.
+
+### Automatic Fallbacks
+
+Both clients implement fallback logic:
+
+```typescript
+// Visual filter fallback
+if (gemini_api_fails) {
+  // Parse response for keywords as fallback
+  // Look for "isValidScene": true/false in text
+}
+
+// Planner fallback
+if (gemini_api_fails) {
+  // Use heuristic selection:
+  // - Pick candidate with highest confidence
+  // - Generate default queries
+  // - Provide basic narration
+}
+```
+
+## Error Handling
+
+```typescript
+try {
+  const result = await client.verifyVisualCopresence(imageUrl);
+  // Process result
+} catch (error) {
+  // Possible errors:
+  // - Image fetch timeout
+  // - Invalid image format
+  // - API quota exceeded
+  // - Network errors
+  console.error('Visual verification failed:', error.message);
+}
+```
+
+## Cost Optimization
+
+Gemini offers excellent cost efficiency:
+
+1. **Free tier**: 1,500 requests/day covers most testing
+2. **Low latency**: gemini-2.0-flash is optimized for speed
+3. **Small payloads**: Visual verification uses minimal tokens
+4. **Fallback logic**: Continues working even on API failures
+
+## Integration Example
+
+Complete visual filtering pipeline:
+
+```typescript
+import { 
+  createGooglePSEClient,
+  createGeminiClient,
+  createRekognitionClient 
+} from '@visual-degrees/integrations';
+
+const pse = createGooglePSEClient();
+const gemini = createGeminiClient();
+const rekognition = createRekognitionClient();
+
+async function findConnection(personA: string, personB: string) {
+  // 1. Search for images
+  const images = await pse.searchImages(`${personA} ${personB}`);
+  
+  for (const image of images.results) {
+    try {
+      // 2. Visual filter (prevents wasted Rekognition calls)
+      const visual = await gemini.verifyVisualCopresence(image.imageUrl);
+      
+      if (!visual.isValidScene) {
+        console.log('⊗ Filtered:', visual.reason);
+        continue;  // Skip composite images
+      }
+      
+      console.log('✓ Valid scene, checking faces...');
+      
+      // 3. Face detection (only for valid scenes)
+      const faces = await rekognition.detectCelebrities(image.imageUrl);
+      
+      if (faces.error || faces.throttled) {
+        continue;
+      }
+      
+      // 4. Verify both people present
+      const names = faces.celebrities.map(c => c.name.toLowerCase());
+      if (names.includes(personA.toLowerCase()) && 
+          names.includes(personB.toLowerCase())) {
+        console.log('★ Connection found!');
+        return image;
+      }
+    } catch (error) {
+      console.log('✗ Error processing image:', error.message);
+    }
+  }
+  
+  return null;
+}
+```
+
+## API Reference
+
+### Class: `GeminiVisualFilterClient`
+
+#### Constructor
+
+```typescript
+new GeminiVisualFilterClient(config: GeminiConfig)
+```
+
+**Parameters:**
+- `config.apiKey` (string): Gemini API key
+- `config.model` (string, optional): Model name (default: "gemini-2.0-flash")
+- `config.gatewayUrl` (string, optional): Custom API gateway URL
+- `config.fetchTimeout` (number, optional): Image fetch timeout in ms (default: 10000)
+- `config.maxImageSize` (number, optional): Max image size in bytes (default: 10MB)
+
+#### Methods
+
+**`verifyVisualCopresence(imageUrl: string): Promise<VisualVerificationResult>`**
+
+Verify if an image shows real co-presence or is a composite.
+
+### Class: `GeminiPlannerClient`
+
+#### Constructor
+
+```typescript
+new GeminiPlannerClient(config: GeminiConfig)
+```
+
+#### Methods
+
+**`selectNextExpansion(input: PlannerInput): Promise<PlannerOutput>`**
+
+Select next candidates to explore.
+
+**`researchConnection(personA: string, personB: string): Promise<ConnectionResearch>`**
+
+Research potential connection paths.
+
+**`suggestBridgeCandidates(personA: string, personB: string): Promise<BridgeCandidateSuggestion[]>`**
+
+Suggest specific bridge candidates.
+
+**`rankCandidatesStrategically(frontier: string, target: string, candidates: Candidate[], research: ConnectionResearch): Promise<StrategicRanking>`**
+
+Rank candidates by strategic value.
+
+**`generateSmartQueries(frontier: string, target: string, research: ConnectionResearch): Promise<string[]>`**
+
+Generate targeted search queries.
+
+**`generateFrontierQueries(frontier: string): Promise<string[]>`**
+
+Generate discovery queries for a person.
+
+### Factory Functions
+
+**`createGeminiClient(): GeminiVisualFilterClient`**
+
+Create visual filter client from environment variables.
+
+**`createGeminiPlannerClient(): GeminiPlannerClient`**
+
+Create planner client from environment variables.
+
+## Source Code
+
+Implementation: [`packages/integrations/src/gemini/client.ts`](https://github.com/nintang/cf_ai_connected/blob/main/packages/integrations/src/gemini/client.ts)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="OpenRouter" icon="route" href="/integrations/openrouter">
+    Alternative LLM provider with web search
+  </Card>
+  <Card title="Pipeline Architecture" icon="sitemap" href="/architecture/overview">
+    How all integrations work together
+  </Card>
+</CardGroup>

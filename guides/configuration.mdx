@@ -1,0 +1,309 @@
+---
+title: Configuration
+description: Configure environment variables, rate limits, CORS, and other options
+---
+
+This guide covers all configuration options for Connected, including rate limiting, CORS, and environment variables.
+
+## Environment Variables
+
+### Required Variables
+
+These variables must be set as secrets in production using `wrangler secret put`:
+
+| Variable | Description | Example |
+|----------|-------------|-------|
+| `GOOGLE_API_KEY` | Google Custom Search API key | `AIza...` |
+| `GOOGLE_CX` | Google Programmable Search Engine ID | `87eb30f845d7e4554` |
+| `AWS_ACCESS_KEY_ID` | AWS IAM access key for Rekognition | `AKIA...` |
+| `AWS_SECRET_ACCESS_KEY` | AWS IAM secret key | `wJalr...` |
+| `OPENROUTER_API_KEY` | OpenRouter API key for Gemini access | `sk-or-...` |
+
+### Optional Variables
+
+| Variable | Description | Default |
+|----------|-------------|-------|
+| `OPENROUTER_MODEL` | Model to use via OpenRouter | `google/gemini-2.5-flash-lite` |
+| `GEMINI_API_KEY` | Direct Gemini API key (fallback) | None |
+
+### Public Variables (wrangler.toml)
+
+These are set in the `[vars]` section of `wrangler.toml` and are **not** secret:
+
+```toml
+[vars]
+AWS_REGION = "us-east-1"
+ALLOWED_ORIGINS = "https://your-domain.com,http://localhost:3000"
+WHITELISTED_IPS = "1.2.3.4,5.6.7.8"  # Optional
+```
+
+| Variable | Description | Default |
+|----------|-------------|-------|
+| `AWS_REGION` | AWS region for Rekognition | `us-east-1` |
+| `ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins | See CORS section |
+| `WHITELISTED_IPS` | Comma-separated list of IPs with unlimited access | None |
+
+## Rate Limiting
+
+Connected implements rate limiting to prevent abuse and control API costs.
+
+### Default Limits
+
+Defined in `apps/worker/src/index.ts:17-19`:
+
+```typescript
+const RATE_LIMIT_MAX = 50;              // 50 searches per window
+const RATE_LIMIT_WINDOW = 24 * 60 * 60; // 24 hours in seconds
+```
+
+This means:
+- Each IP address can perform **50 investigations per 24 hours**
+- After exceeding the limit, requests return `429 Too Many Requests`
+- The limit resets 24 hours after the first request
+
+### Rate Limit Headers
+
+Every response includes rate limit information:
+
+```http
+X-RateLimit-Limit: 50
+X-RateLimit-Remaining: 42
+X-RateLimit-Reset: 1704153600
+```
+
+| Header | Description |
+|--------|-------------|
+| `X-RateLimit-Limit` | Maximum requests allowed in the window |
+| `X-RateLimit-Remaining` | Requests remaining in the current window |
+| `X-RateLimit-Reset` | Unix timestamp when the limit resets |
+
+### Whitelisting IPs
+
+To bypass rate limits for specific IPs (e.g., your own testing, trusted partners), add them to the `WHITELISTED_IPS` variable:
+
+**In wrangler.toml** (for production):
+
+```toml
+[vars]
+WHITELISTED_IPS = "1.2.3.4,5.6.7.8,192.168.1.100"
+```
+
+**In .dev.vars** (for local development):
+
+```env
+WHITELISTED_IPS=127.0.0.1,::1
+```
+
+Whitelisted IPs:
+- Bypass all rate limits
+- Show `X-RateLimit-Remaining: 999999` in responses
+- Are checked on every request (`apps/worker/src/index.ts:52-62`)
+
+<Warning>
+  Whitelisted IPs have unlimited access to your API. Only whitelist IPs you trust.
+</Warning>
+
+### Customizing Rate Limits
+
+To change rate limits for your deployment:
+
+<Steps>
+  <Step title="Edit the constants">
+    Open `apps/worker/src/index.ts` and modify:
+
+    ```typescript
+    // Change to 100 searches per week
+    const RATE_LIMIT_MAX = 100;
+    const RATE_LIMIT_WINDOW = 7 * 24 * 60 * 60; // 7 days
+    ```
+  </Step>
+
+  <Step title="Redeploy the worker">
+    ```bash
+    cd apps/worker
+    pnpm deploy
+    ```
+  </Step>
+</Steps>
+
+### How Rate Limiting Works
+
+The rate limiter uses Cloudflare KV for state storage (`apps/worker/src/index.ts:68-113`):
+
+1. On each request, check the KV store for the IP's counter
+2. If no counter exists, initialize it with `count: 1` and `resetAt: now + window`
+3. If the window has expired, reset the counter
+4. If the count is below the limit, increment it
+5. If the count is at the limit, return `429`
+
+The IP address is extracted from the `CF-Connecting-IP` header (set by Cloudflare) or falls back to `X-Forwarded-For` (`apps/worker/src/index.ts:118-122`).
+
+## CORS Configuration
+
+### Allowed Origins
+
+The worker validates the `Origin` header on every request and sets CORS headers accordingly (`apps/worker/src/index.ts:37-47`).
+
+**Default allowed origins** (hardcoded fallback):
+
+```typescript
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://vd.nintang48.workers.dev",
+  "http://localhost:3000",
+  "http://localhost:3001",
+];
+```
+
+**Configure in wrangler.toml**:
+
+```toml
+[vars]
+ALLOWED_ORIGINS = "https://myapp.com,https://staging.myapp.com,http://localhost:3000"
+```
+
+<Note>
+  Separate multiple origins with commas. Include both production and staging domains.
+</Note>
+
+### CORS Headers
+
+The worker sets these headers on all responses:
+
+```http
+Access-Control-Allow-Origin: <matching-origin>
+Access-Control-Allow-Methods: GET, POST, OPTIONS
+Access-Control-Allow-Headers: Content-Type
+```
+
+If the request origin is in the allowed list, it's returned in `Access-Control-Allow-Origin`. Otherwise, the first origin in the list is used as a fallback.
+
+### Preflight Requests
+
+The worker handles `OPTIONS` requests (CORS preflight) by returning an empty response with CORS headers (`apps/worker/src/index.ts:130-132`):
+
+```typescript
+if (request.method === "OPTIONS") {
+  return new Response(null, { headers: corsHeaders });
+}
+```
+
+### Troubleshooting CORS
+
+<Accordion title="CORS error in browser console">
+  **Problem**: `Access to fetch at '...' has been blocked by CORS policy`
+
+  **Solution**:
+  1. Check that your frontend domain is in `ALLOWED_ORIGINS`
+  2. Verify the worker has been redeployed after changing `ALLOWED_ORIGINS`
+  3. Check the browser's Network tab to see the actual `Access-Control-Allow-Origin` header
+</Accordion>
+
+<Accordion title="Credentials not working">
+  **Problem**: Cookies or auth headers not sent
+
+  **Solution**: If you need to send credentials, you'll need to add support for:
+  - `Access-Control-Allow-Credentials: true`
+  - Remove wildcard from `Access-Control-Allow-Origin` (must be specific origin)
+
+  Edit `apps/worker/src/index.ts:42-46` to add the credentials header.
+</Accordion>
+
+## Cloudflare Bindings
+
+### KV Namespaces
+
+Defined in `wrangler.toml:16-25`:
+
+```toml
+[[kv_namespaces]]
+binding = "INVESTIGATION_EVENTS"
+id = "58df6c4dedab42529ecf698fcd812220"
+preview_id = "58df6c4dedab42529ecf698fcd812220"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "048330686cfa4232b4b503a9119a3192"
+preview_id = "048330686cfa4232b4b503a9119a3192"
+```
+
+| Binding | Purpose |
+|---------|-------|
+| `INVESTIGATION_EVENTS` | Stores investigation events for SSE streaming |
+| `RATE_LIMIT` | Stores rate limit counters per IP |
+
+### D1 Database
+
+Defined in `wrangler.toml:33-36`:
+
+```toml
+[[d1_databases]]
+binding = "GRAPH_DB"
+database_name = "visual-degrees-graph"
+database_id = "e06f45af-8e0b-4bf2-a42b-f202f71112b7"
+```
+
+Used for persistent storage of the social graph (nodes and edges).
+
+### Workflows
+
+Defined in `wrangler.toml:27-30`:
+
+```toml
+[[workflows]]
+name = "investigation"
+binding = "INVESTIGATION_WORKFLOW"
+class_name = "InvestigationWorkflow"
+```
+
+The investigation workflow is a durable state machine that orchestrates the multi-step search process.
+
+### Durable Objects
+
+Defined in `wrangler.toml:39-43`:
+
+```toml
+[durable_objects]
+bindings = [
+  { name = "GRAPH_BROADCASTER", class_name = "GraphBroadcaster" },
+  { name = "INVESTIGATION_EVENTS_BROADCASTER", class_name = "InvestigationEventsBroadcaster" }
+]
+```
+
+| Binding | Purpose |
+|---------|-------|
+| `GRAPH_BROADCASTER` | WebSocket server for real-time graph updates |
+| `INVESTIGATION_EVENTS_BROADCASTER` | WebSocket server for per-investigation event streams |
+
+## Investigation Constraints
+
+These are hardcoded in the investigation logic:
+
+| Setting | Value | Location |
+|---------|-------|----------|
+| Max hops | 6 | Investigation workflow |
+| Face detection confidence threshold | ≥80% | `@visual-degrees/core` |
+| Images per search | 5 | Google PSE client |
+| SSE stream timeout | 10 minutes | `apps/worker/src/index.ts:283` |
+
+To change these, you'll need to modify the core packages and redeploy.
+
+## Observability
+
+Cloudflare Workers observability is enabled in `wrangler.toml:53-55`:
+
+```toml
+[observability]
+enabled = true
+head_sampling_rate = 1
+```
+
+This enables:
+- Distributed tracing
+- Detailed logs in the Cloudflare dashboard
+- Performance metrics
+
+## Next Steps
+
+- [Health check endpoint](/api/health)
+- [Architecture overview](/architecture/overview)
+- [API reference](/api/overview)

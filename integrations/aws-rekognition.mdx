@@ -1,0 +1,375 @@
+---
+title: "AWS Rekognition"
+description: "Celebrity face detection service for identifying public figures in images"
+---
+
+## Overview
+
+AWS Rekognition is the core face detection service in the Connected pipeline. It uses Amazon's pre-trained celebrity recognition models to identify famous individuals in images and provide confidence scores for each detection.
+
+## Role in the Pipeline
+
+Rekognition is used to:
+
+1. **Identify celebrities**: Detect which famous people appear in each image
+2. **Calculate confidence**: Provide match confidence scores (0-100%) for each face
+3. **Extract bounding boxes**: Return face locations for potential future use
+4. **Validate connections**: Confirm that two specific people appear in the same image
+
+Every edge in the connection graph must be verified by Rekognition with ≥80% confidence for both people.
+
+## Configuration
+
+### Environment Variables
+
+```bash
+AWS_ACCESS_KEY_ID=your_access_key         # Required: AWS IAM access key
+AWS_SECRET_ACCESS_KEY=your_secret_key     # Required: AWS IAM secret key
+AWS_REGION=us-east-1                      # Optional: AWS region (default: us-east-1)
+```
+
+### Setup Requirements
+
+1. **Create an AWS Account**
+   - Sign up at [aws.amazon.com](https://aws.amazon.com)
+
+2. **Enable Rekognition**
+   - Rekognition is enabled by default in most regions
+   - Check availability in your region
+
+3. **Create IAM User**
+   - Create a user with `AmazonRekognitionFullAccess` policy
+   - Generate access keys
+   - Store keys securely (never commit to git)
+
+### Client Configuration
+
+```typescript
+import { CelebrityRekognitionClient } from '@visual-degrees/integrations';
+
+const client = new CelebrityRekognitionClient({
+  region: 'us-east-1',
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  // Optional configuration:
+  fetchTimeout: 10000,        // Image fetch timeout (ms)
+  maxImageSize: 5242880,      // Max image size (bytes) - Rekognition limit is 5MB
+  maxRetries: 3,              // Retry attempts for rate limiting
+  baseRetryDelay: 1000        // Initial retry delay (ms)
+});
+```
+
+Or use the factory function:
+
+```typescript
+import { createRekognitionClient } from '@visual-degrees/integrations';
+
+// Automatically reads from environment variables
+const client = createRekognitionClient();
+```
+
+## Usage
+
+### Celebrity Detection
+
+```typescript
+const result = await client.detectCelebrities(
+  'https://example.com/image.jpg'
+);
+
+if (!result.error && !result.throttled) {
+  console.log(`Found ${result.celebrities.length} celebrities`);
+  
+  for (const celeb of result.celebrities) {
+    console.log(`${celeb.name}: ${celeb.confidence}% confidence`);
+  }
+}
+```
+
+### Response Format
+
+```typescript
+interface RekognitionAnalysisResult {
+  imageUrl: string;                    // Original image URL
+  celebrities: DetectedCelebrity[];    // Detected celebrities
+  throttled?: boolean;                 // True if rate-limited after all retries
+  error?: string;                      // Error message if request failed
+}
+
+interface DetectedCelebrity {
+  name: string;           // Celebrity name (e.g., "Taylor Swift")
+  confidence: number;     // Match confidence (0-100)
+  boundingBox: BoundingBox;  // Face location in image
+}
+
+interface BoundingBox {
+  left: number;    // Left coordinate (0-1, relative to image width)
+  top: number;     // Top coordinate (0-1, relative to image height)
+  width: number;   // Box width (0-1, relative to image width)
+  height: number;  // Box height (0-1, relative to image height)
+}
+```
+
+### Error Handling
+
+The client uses a graceful error handling strategy:
+
+```typescript
+const result = await client.detectCelebrities(imageUrl);
+
+// Check for errors
+if (result.error) {
+  console.log('Error:', result.error);
+  // Possible errors:
+  // - Image fetch timeout
+  // - Image too large (>5MB)
+  // - Invalid image format
+  // - Unsupported content type
+  // - HTTP errors
+}
+
+// Check for throttling
+if (result.throttled) {
+  console.log('Rate limited - too many requests');
+  // Retry with backoff or skip this image
+}
+
+// Success case
+if (!result.error && !result.throttled) {
+  // Process celebrities
+  for (const celeb of result.celebrities) {
+    console.log(celeb.name, celeb.confidence);
+  }
+}
+```
+
+## Image Requirements
+
+### Supported Formats
+
+- JPEG (.jpg, .jpeg)
+- PNG (.png)
+
+### Size Constraints
+
+- **Maximum**: 5 MB (enforced by AWS)
+- **Minimum**: ~100 bytes (practical minimum for valid images)
+
+### Content Validation
+
+The client performs multiple validation checks:
+
+```typescript
+// 1. URL validation
+✓ Must be HTTP or HTTPS
+✓ Must be a valid URL format
+
+// 2. Content-Type validation
+✓ Must be image/jpeg or image/png
+✓ Rejects HTML error pages
+
+// 3. Size validation
+✓ Checks Content-Length header
+✓ Streams response and aborts if exceeds 5MB
+✓ Rejects empty responses
+
+// 4. Timeout protection
+✓ 10 second timeout for image fetch
+✓ Aborts request if exceeded
+```
+
+## Rate Limits and Quotas
+
+### AWS Rekognition Limits
+
+- **Default TPS**: 5 transactions per second (varies by region)
+- **Burst capacity**: Up to 50 requests (short bursts allowed)
+- **Quotas**: Can be increased via AWS Support
+
+### Automatic Retry Logic
+
+The client implements exponential backoff for rate limiting:
+
+```typescript
+// Retry configuration
+Maximum retries: 3
+Base delay: 1000ms
+
+// Retry schedule:
+Attempt 1: 1000ms + jitter (0-500ms)
+Attempt 2: 2000ms + jitter
+Attempt 3: 4000ms + jitter
+
+// After 3 failed retries:
+// Returns { throttled: true, celebrities: [] }
+```
+
+Example retry behavior:
+
+```typescript
+const result = await client.detectCelebrities(imageUrl);
+
+if (result.throttled) {
+  // All 3 retry attempts exhausted
+  // Consider:
+  // 1. Adding delay before next request
+  // 2. Skipping this image
+  // 3. Implementing higher-level rate limiting
+}
+```
+
+## Cost Considerations
+
+### Pricing (as of 2024)
+
+- **Free tier**: 5,000 images per month for 12 months
+- **Paid tier**: $1.00 per 1,000 images
+- **Minimum charge**: $0.001 per image
+
+### Cost Optimization
+
+Connected minimizes costs by:
+
+1. **Visual filtering first**: Uses Gemini to filter out collages before Rekognition
+2. **Strategic queries**: LLM planner reduces unnecessary searches
+3. **Early termination**: Stops when confidence threshold is met
+4. **Caching**: Stores verified connections to avoid re-processing
+
+## Integration Example
+
+Complete pipeline integration:
+
+```typescript
+import { 
+  createGooglePSEClient, 
+  createRekognitionClient,
+  createGeminiClient 
+} from '@visual-degrees/integrations';
+
+const pse = createGooglePSEClient();
+const rekognition = createRekognitionClient();
+const gemini = createGeminiClient();
+
+const personA = 'Taylor Swift';
+const personB = 'Travis Kelce';
+
+// 1. Search for images
+const images = await pse.searchImages(`${personA} ${personB}`);
+
+// 2. Process each image
+for (const image of images.results) {
+  // 2a. Filter out collages (optional but recommended)
+  const visualCheck = await gemini.verifyVisualCopresence(image.imageUrl);
+  if (!visualCheck.isValidScene) {
+    console.log('Skipping collage:', visualCheck.reason);
+    continue;
+  }
+  
+  // 2b. Detect celebrities
+  const result = await rekognition.detectCelebrities(image.imageUrl);
+  
+  if (result.error || result.throttled) {
+    console.log('Skipping image:', result.error || 'throttled');
+    continue;
+  }
+  
+  // 2c. Check if both people are found
+  const celebNames = result.celebrities.map(c => c.name.toLowerCase());
+  const foundA = celebNames.includes(personA.toLowerCase());
+  const foundB = celebNames.includes(personB.toLowerCase());
+  
+  if (foundA && foundB) {
+    // Get confidence scores
+    const confA = result.celebrities.find(
+      c => c.name.toLowerCase() === personA.toLowerCase()
+    )?.confidence ?? 0;
+    
+    const confB = result.celebrities.find(
+      c => c.name.toLowerCase() === personB.toLowerCase()
+    )?.confidence ?? 0;
+    
+    const minConfidence = Math.min(confA, confB);
+    
+    if (minConfidence >= 80) {
+      console.log(`✓ Connection verified: ${minConfidence}% confidence`);
+      console.log(`Image: ${image.imageUrl}`);
+      break;  // Found valid connection
+    }
+  }
+}
+```
+
+## Confidence Threshold
+
+Connected uses a **minimum 80% confidence** threshold:
+
+```typescript
+// Per-image confidence calculation
+const imageConfidence = Math.min(
+  celebrityA.confidence,
+  celebrityB.confidence
+);
+
+// Connection is valid only if:
+if (imageConfidence >= 80) {
+  // Store this as verified edge
+}
+```
+
+### Why 80%?
+
+- **High accuracy**: Reduces false positives
+- **Rekognition reliability**: 80%+ is typically very accurate
+- **Multiple images**: If one image is 75%, another might be 95%
+- **User trust**: High confidence builds credibility
+
+## API Reference
+
+### Class: `CelebrityRekognitionClient`
+
+#### Constructor
+
+```typescript
+new CelebrityRekognitionClient(config?: RekognitionConfig)
+```
+
+**Parameters:**
+- `config.region` (string, optional): AWS region (default: "us-east-1")
+- `config.accessKeyId` (string, optional): AWS access key
+- `config.secretAccessKey` (string, optional): AWS secret key
+- `config.fetchTimeout` (number, optional): Image fetch timeout in ms (default: 10000)
+- `config.maxImageSize` (number, optional): Max image size in bytes (default: 5MB)
+- `config.maxRetries` (number, optional): Max retry attempts (default: 3)
+- `config.baseRetryDelay` (number, optional): Base retry delay in ms (default: 1000)
+
+#### Methods
+
+**`detectCelebrities(imageUrl: string): Promise<RekognitionAnalysisResult>`**
+
+Detect celebrities in an image by URL.
+
+- **Parameters**: `imageUrl` - HTTP/HTTPS URL to image
+- **Returns**: Promise resolving to `RekognitionAnalysisResult`
+- **Never throws**: Returns error details in result object
+
+### Function: `createRekognitionClient()`
+
+Factory function that creates a client from environment variables.
+
+- **Returns**: `CelebrityRekognitionClient` instance
+- **Uses env vars**: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+
+## Source Code
+
+Implementation: [`packages/integrations/src/rekognition/client.ts`](https://github.com/nintang/cf_ai_connected/blob/main/packages/integrations/src/rekognition/client.ts)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Gemini Visual Filter" icon="filter" href="/integrations/gemini">
+    Filter out collages before face detection
+  </Card>
+  <Card title="OpenRouter Integration" icon="brain" href="/integrations/openrouter">
+    Use LLM for fallback celebrity verification
+  </Card>
+</CardGroup>

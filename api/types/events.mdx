@@ -1,0 +1,263 @@
+---
+title: "Event Types"
+description: "Types for streaming investigation events and real-time updates"
+---
+
+## InvestigationEvent
+
+A streaming event emitted during an investigation for real-time UI updates.
+
+```typescript
+interface InvestigationEvent {
+  type: InvestigationEventType;
+  runId: string;
+  timestamp: string;
+  message: string;
+  data?: {
+    eventId?: string;
+    stepId?: InvestigationStepId;
+    stepNumber?: number;
+    stepTitle?: string;
+    stepStatus?: StepStatus;
+    fromPerson?: string;
+    toPerson?: string;
+    query?: string;
+    reasoning?: string;
+    thinkingChunk?: string;
+    thinkingComplete?: boolean;
+    candidates?: Array<{ name: string; score?: number; coappearCount?: number; reasoning?: string }>;
+    imageIndex?: number;
+    totalImages?: number;
+    imageUrl?: string;
+    status?: "collage" | "no_match" | "evidence" | "error";
+    reason?: string;
+    celebrities?: Array<{ name: string; confidence: number }>;
+    aiVerified?: boolean;
+    aiNotes?: string;
+    edge?: {
+      from: string;
+      to: string;
+      confidence: number;
+      evidenceUrl?: string;
+      thumbnailUrl?: string;
+      contextUrl?: string;
+    };
+    path?: string[];
+    hopDepth?: number;
+    confirmedBridge?: string;
+    progressPct?: number;
+    hop?: number;
+    frontier?: string;
+    budget?: InvestigationBudgets;
+    from?: string;
+    to?: string;
+    remainingDepth?: number;
+    result?: VerifiedPath;
+    category?: "INTEGRATION_ERROR" | "TIMEOUT" | "VALIDATION_ERROR" | "UNKNOWN";
+  };
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | `InvestigationEventType` | Yes | The type of event being emitted |
+| `runId` | `string` | Yes | Unique run identifier for this investigation |
+| `timestamp` | `string` | Yes | ISO-8601 timestamp of when the event occurred |
+| `message` | `string` | Yes | Human-readable message describing the event |
+| `data` | `object` | No | Event-specific data payload (see below) |
+
+### Event Data Fields
+
+The `data` field contains different properties depending on the event type:
+
+#### Common Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `eventId` | `string` | Unique event identifier for deduplication |
+
+#### Step Events (`step_start`, `step_update`, `step_complete`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `stepId` | `InvestigationStepId` | Identifier for the step |
+| `stepNumber` | `number` | Step number in the sequence |
+| `stepTitle` | `string` | Human-readable step title |
+| `stepStatus` | `StepStatus` | Current status of the step |
+| `fromPerson` | `string` | Source person for connection steps |
+| `toPerson` | `string` | Target person for connection steps |
+
+#### Research Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `query` | `string` | The search query being executed |
+
+#### Thinking Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `reasoning` | `string` | AI reasoning text |
+| `thinkingChunk` | `string` | Streaming chunk of AI thinking (append to previous chunks) |
+| `thinkingComplete` | `boolean` | Whether this is the final chunk of thinking |
+
+#### Candidate Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `candidates` | `Array<object>` | List of candidate bridge people with scores and reasoning |
+
+#### Image Result Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `imageIndex` | `number` | Index of the current image |
+| `totalImages` | `number` | Total number of images being processed |
+| `imageUrl` | `string` | URL of the image being analyzed |
+| `status` | `"collage" \| "no_match" \| "evidence" \| "error"` | Result of the image analysis |
+| `reason` | `string` | Explanation of the status |
+| `celebrities` | `Array<object>` | Celebrities detected in the image |
+| `aiVerified` | `boolean` | Whether this evidence was verified by AI |
+| `aiNotes` | `string` | Additional notes from AI verification |
+
+#### Evidence Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `edge` | `object` | Details about the verified edge |
+
+#### Path Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | `string[]` | Current path of verified connections |
+| `hopDepth` | `number` | Current depth in the search |
+
+#### Strategy Update Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `confirmedBridge` | `string` | Name of the confirmed bridge person |
+| `progressPct` | `number` | Progress percentage (0-100) |
+
+#### Status Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `hop` | `number` | Current hop number |
+| `frontier` | `string` | Current frontier node |
+| `budget` | `InvestigationBudgets` | Current budget state |
+
+#### Backtrack Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `from` | `string` | Person being backtracked from |
+| `to` | `string` | Person being backtracked to |
+| `remainingDepth` | `number` | Remaining search depth |
+
+#### Final Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `result` | `VerifiedPath` | The complete verified path result |
+
+#### Error Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `category` | `"INTEGRATION_ERROR" \| "TIMEOUT" \| "VALIDATION_ERROR" \| "UNKNOWN"` | Error category |
+
+## InvestigationEventType
+
+All possible event types emitted during an investigation.
+
+```typescript
+type InvestigationEventType =
+  | "step_start"           // Starting a new step
+  | "step_update"          // Progress update within a step
+  | "step_complete"        // Step completed
+  | "research"             // Starting a search query
+  | "thinking"             // LLM reasoning/thoughts
+  | "strategy"             // Initial strategy decision
+  | "strategy_update"      // Strategy updated based on findings
+  | "candidate_discovery"  // Found candidate bridges
+  | "llm_selection"        // LLM selected next candidates
+  | "image_result"         // Per-image analysis result
+  | "evidence"             // Verified edge found
+  | "path_update"          // Path has changed
+  | "backtrack"            // DFS backtracking to try another path
+  | "status"               // General status update
+  | "final"                // Investigation completed successfully
+  | "no_path"              // Investigation completed with no path
+  | "error";               // Error occurred
+```
+
+## InvestigationStepId
+
+Step identifiers for the investigation workflow.
+
+```typescript
+type InvestigationStepId =
+  | "direct_check"       // Step 1: Check for direct connection
+  | "find_bridges"       // Step 2: Find bridge candidates
+  | "verify_bridge"      // Step 3: Verify connection to bridge candidate
+  | "connect_target";    // Step 4: Connect bridge to target
+```
+
+## StepStatus
+
+Status values for investigation steps.
+
+```typescript
+type StepStatus = "pending" | "running" | "done" | "failed" | "skipped";
+```
+
+## EventsResponse
+
+Response from the events polling endpoint.
+
+```typescript
+interface EventsResponse {
+  runId: string;
+  events: InvestigationEvent[];
+  complete: boolean;
+  cursor?: string;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `runId` | `string` | Yes | Run ID for this investigation |
+| `events` | `InvestigationEvent[]` | Yes | All events (or events after cursor) |
+| `complete` | `boolean` | Yes | Whether the investigation is complete |
+| `cursor` | `string` | No | Cursor for next poll (timestamp of last event) |
+
+## Usage Example
+
+```typescript
+// Poll for events
+const response = await fetch('/api/investigations/run123/events?cursor=2026-03-04T10:30:00Z');
+const eventsResponse: EventsResponse = await response.json();
+
+// Process events
+for (const event of eventsResponse.events) {
+  switch (event.type) {
+    case 'step_start':
+      console.log(`Starting step: ${event.data?.stepTitle}`);
+      break;
+    case 'evidence':
+      console.log(`Found connection: ${event.data?.edge?.from} → ${event.data?.edge?.to}`);
+      break;
+    case 'final':
+      console.log('Investigation complete!', event.data?.result);
+      break;
+  }
+}
+
+// Continue polling if not complete
+if (!eventsResponse.complete) {
+  // Use the cursor for the next poll
+  const nextCursor = eventsResponse.cursor;
+}
+```

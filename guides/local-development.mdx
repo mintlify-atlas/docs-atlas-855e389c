@@ -1,0 +1,254 @@
+---
+title: Local Development
+description: Run Connected locally, understand the dev workflow, and use hot reload
+---
+
+This guide walks you through running Connected on your local machine for development.
+
+## Prerequisites
+
+- Node.js 18 or higher
+- pnpm 8 or higher
+- [Environment variables configured](/guides/environment-setup)
+
+## Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/nintang/cf_ai_connected.git
+    cd cf_ai_connected
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    pnpm install
+    ```
+
+    This installs dependencies for all packages in the monorepo.
+  </Step>
+
+  <Step title="Build packages">
+    ```bash
+    pnpm build
+    ```
+
+    This builds the shared packages (`@visual-degrees/contracts`, `@visual-degrees/core`, `@visual-degrees/integrations`) that the worker depends on.
+  </Step>
+</Steps>
+
+## Running Locally
+
+Connected consists of two apps that run simultaneously:
+
+1. **Worker** - Cloudflare Worker (backend API)
+2. **Web** - Next.js app (frontend UI)
+
+### Start the Worker
+
+Open a terminal and run:
+
+```bash
+cd apps/worker
+pnpm dev
+```
+
+This starts the Cloudflare Worker using Wrangler's local dev server. You should see:
+
+```
+⛅️ wrangler dev
+
+Your worker has 1 binding:
+- AI: (AI) attached
+- KV Namespaces:
+  - INVESTIGATION_EVENTS
+  - RATE_LIMIT
+
+⎔ Starting local server...
+[wrangler:inf] Ready on http://localhost:8787
+```
+
+The worker API is now available at `http://localhost:8787`.
+
+### Start the Web App
+
+Open a **second terminal** and run:
+
+```bash
+cd apps/web
+pnpm dev
+```
+
+This starts the Next.js development server:
+
+```
+  ▲ Next.js 15.5.9
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 2.3s
+```
+
+Visit `http://localhost:3000` in your browser to use the app.
+
+<Note>
+  The web app is configured to connect to `http://localhost:8787` for API requests during local development.
+</Note>
+
+## Development Workflow
+
+### Hot Reload
+
+Both the worker and web app support hot reload:
+
+- **Worker**: Wrangler automatically reloads when you edit files in `apps/worker/src/`
+- **Web**: Next.js Fast Refresh updates the browser when you edit files in `apps/web/src/`
+
+<Warning>
+  If you edit shared packages (`packages/*`), you'll need to rebuild them with `pnpm build` and restart the worker.
+</Warning>
+
+### Watching Shared Packages
+
+For active development on shared packages, you can set up watch mode:
+
+```bash
+# In the package directory you're working on
+cd packages/core
+pnpm build --watch
+```
+
+This automatically rebuilds the package when you make changes. You'll still need to reload the worker manually.
+
+## Testing the API
+
+You can test the worker API directly using curl or your favorite API client.
+
+### Health Check
+
+```bash
+curl http://localhost:8787/api/health
+```
+
+This tests all external services (Google PSE, AWS Rekognition, OpenRouter) and returns their status.
+
+### Parse a Query
+
+```bash
+curl -X POST http://localhost:8787/api/chat/parse \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Elon Musk to Beyonce"}'
+```
+
+### Start an Investigation
+
+```bash
+curl -X POST http://localhost:8787/api/chat/query \
+  -H "Content-Type: application/json" \
+  -d '{"personA": "Elon Musk", "personB": "Beyonce"}'
+```
+
+This returns a `runId` that you can use to stream events.
+
+## Project Structure
+
+```
+cf_ai_connected/
+├── apps/
+│   ├── web/                    # Next.js frontend
+│   │   ├── src/
+│   │   │   ├── app/           # App router pages
+│   │   │   ├── components/    # React components
+│   │   │   ├── hooks/         # Custom hooks
+│   │   │   └── lib/           # Utilities
+│   │   └── package.json
+│   │
+│   └── worker/                 # Cloudflare Worker
+│       ├── src/
+│       │   ├── index.ts       # API routes & CORS
+│       │   ├── workflows/     # Investigation workflow
+│       │   ├── durable-objects/  # WebSocket handlers
+│       │   ├── tools/         # Search & verification
+│       │   └── graph-db.ts    # D1 graph storage
+│       ├── wrangler.toml      # Worker config
+│       └── package.json
+│
+├── packages/
+│   ├── contracts/             # Shared TypeScript types
+│   ├── core/                  # Investigation orchestration
+│   └── integrations/          # External API clients
+│
+└── package.json               # Root workspace config
+```
+
+## Debugging
+
+### Worker Logs
+
+Wrangler outputs logs directly to your terminal. You'll see:
+
+- HTTP requests and responses
+- Console logs from your worker code
+- Errors and stack traces
+
+### Web App Logs
+
+Next.js logs appear in your terminal and browser console:
+
+- Server-side logs in the terminal
+- Client-side logs in the browser DevTools
+
+### Common Issues
+
+<Accordion title="Worker fails to start">
+  **Problem**: `Error: Missing binding INVESTIGATION_WORKFLOW`
+
+  **Solution**: Make sure you've defined all required bindings in `wrangler.toml`. For local dev, Wrangler automatically creates local KV namespaces and Durable Objects.
+</Accordion>
+
+<Accordion title="Web app can't connect to worker">
+  **Problem**: Network errors in the browser console
+
+  **Solution**: 
+  1. Verify the worker is running on `http://localhost:8787`
+  2. Check CORS configuration in `apps/worker/src/index.ts` includes `http://localhost:3000`
+</Accordion>
+
+<Accordion title="Rate limit errors during testing">
+  **Problem**: `429 Rate limit exceeded`
+
+  **Solution**: The default rate limit is 50 searches per 24 hours per IP. Add your local IP to `WHITELISTED_IPS` in production secrets, or temporarily increase `RATE_LIMIT_MAX` in `apps/worker/src/index.ts:18` for local testing.
+</Accordion>
+
+## Scripts Reference
+
+### Root Scripts
+
+```bash
+pnpm build          # Build all packages
+pnpm typecheck      # Type-check all packages
+```
+
+### Worker Scripts
+
+```bash
+pnpm dev            # Start local dev server
+pnpm deploy         # Deploy to Cloudflare (production)
+```
+
+### Web Scripts
+
+```bash
+pnpm dev            # Start Next.js dev server
+pnpm build          # Build for production
+pnpm start          # Start production server locally
+pnpm deploy         # Deploy to Cloudflare Pages
+```
+
+## Next Steps
+
+- [Deploy to production](/guides/deployment)
+- [Configure rate limits and CORS](/guides/configuration)
+- [Explore the API endpoints](/api/overview)

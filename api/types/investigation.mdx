@@ -1,0 +1,144 @@
+---
+title: "Investigation Types"
+description: "Core types for configuring and managing investigations"
+---
+
+## InvestigationConfig
+
+Configuration parameters for an investigation workflow.
+
+```typescript
+interface InvestigationConfig {
+  hopLimit: number;
+  confidenceThreshold: number;
+  imagesPerQuery: number;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `hopLimit` | `number` | Yes | Maximum number of hops allowed in the search path (default: 15) |
+| `confidenceThreshold` | `number` | Yes | Minimum confidence threshold for accepting celebrity detections (default: 80) |
+| `imagesPerQuery` | `number` | Yes | Number of images to process per search query (default: 3) |
+
+### Default Configuration
+
+```typescript
+const DEFAULT_CONFIG: InvestigationConfig = {
+  hopLimit: 15,
+  confidenceThreshold: 80,
+  imagesPerQuery: 3,
+};
+```
+
+## InvestigationState
+
+The current state of an ongoing investigation.
+
+```typescript
+interface InvestigationState {
+  personA: string;
+  personB: string;
+  frontier: string;
+  hopDepth: number;
+  path: string[];
+  verifiedEdges: VerifiedEdge[];
+  failedCandidates: string[];
+  budgets: InvestigationBudgets;
+  status: "running" | "success" | "failed";
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `personA` | `string` | Yes | Original starting person |
+| `personB` | `string` | Yes | Target person to connect to |
+| `frontier` | `string` | Yes | Current frontier node being expanded |
+| `hopDepth` | `number` | Yes | Current hop depth in the search |
+| `path` | `string[]` | Yes | Ordered path of verified nodes so far |
+| `verifiedEdges` | `VerifiedEdge[]` | Yes | All verified edges discovered |
+| `failedCandidates` | `string[]` | Yes | Candidates that failed verification |
+| `budgets` | `InvestigationBudgets` | Yes | Current budget state for the investigation |
+| `status` | `"running" \| "success" \| "failed"` | Yes | Current status of the investigation |
+
+## InvestigationResult
+
+The final result of a completed investigation.
+
+```typescript
+type InvestigationResult =
+  | { status: "success"; result: VerifiedPath; disclaimer: string }
+  | { status: "no_path"; personA: string; personB: string; message: string };
+```
+
+### Success Result
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `status` | `"success"` | Yes | Indicates a path was found |
+| `result` | `VerifiedPath` | Yes | The complete verified path between the two people |
+| `disclaimer` | `string` | Yes | Disclaimer text about the result |
+
+### No Path Result
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `status` | `"no_path"` | Yes | Indicates no path was found |
+| `personA` | `string` | Yes | Starting person |
+| `personB` | `string` | Yes | Target person |
+| `message` | `string` | Yes | Explanation message |
+
+## InvestigationBudgets
+
+Budget tracking for investigation workflow to prevent resource exhaustion.
+
+```typescript
+interface InvestigationBudgets {
+  maxSteps: number;
+  stepsUsed: number;
+  maxSubrequests: number;
+  subrequestsUsed: number;
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `maxSteps` | `number` | Yes | Maximum DFS steps (candidate verifications) allowed |
+| `stepsUsed` | `number` | Yes | Steps used so far |
+| `maxSubrequests` | `number` | Yes | Maximum subrequests allowed (Cloudflare limit is 1000, we use 900 for safety) |
+| `subrequestsUsed` | `number` | Yes | Subrequests used so far (tracks ALL external calls) |
+
+### Default Budgets
+
+```typescript
+const DEFAULT_BUDGETS: InvestigationBudgets = {
+  maxSteps: 15,
+  stepsUsed: 0,
+  maxSubrequests: 900,
+  subrequestsUsed: 0,
+};
+```
+
+## DirectEdgeResult
+
+Result of attempting to verify a direct edge between two people.
+
+```typescript
+type DirectEdgeResult =
+  | { success: true; edge: VerifiedEdge }
+  | { success: false; partialMatches: ImageAnalysisResult[] };
+```
+
+### Success Result
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `success` | `true` | Yes | Indicates verification succeeded |
+| `edge` | `VerifiedEdge` | Yes | The verified edge with evidence |
+
+### Failure Result
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `success` | `false` | Yes | Indicates verification failed |
+| `partialMatches` | `ImageAnalysisResult[]` | Yes | Images that had partial matches |

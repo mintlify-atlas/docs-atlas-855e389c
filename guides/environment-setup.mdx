@@ -1,0 +1,152 @@
+---
+title: Environment Setup
+description: Get API keys and configure environment variables for local development
+---
+
+Before running Connected locally, you'll need to obtain API keys from several services and configure your environment variables.
+
+## Required API Keys
+
+### Google Programmable Search Engine (PSE)
+
+Used for finding images of public figures across the web.
+
+<Steps>
+  <Step title="Create a Custom Search Engine">
+    1. Visit the [Programmable Search Engine control panel](https://programmablesearchengine.google.com/)
+    2. Click "Add" to create a new search engine
+    3. Under "Sites to search", select "Search the entire web"
+    4. Enable "Image search" in the settings
+    5. Copy your **Search engine ID** (CX)
+  </Step>
+
+  <Step title="Get an API Key">
+    1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+    2. Create a new project or select an existing one
+    3. Enable the **Custom Search API**
+    4. Go to **Credentials** and create an API key
+    5. Copy your **API key**
+  </Step>
+</Steps>
+
+### AWS Rekognition
+
+Used for celebrity face detection and verification with confidence scores.
+
+<Steps>
+  <Step title="Create an IAM User">
+    1. Log in to the [AWS Console](https://console.aws.amazon.com/)
+    2. Navigate to **IAM** → **Users** → **Create user**
+    3. Give it a descriptive name like `connected-rekognition`
+  </Step>
+
+  <Step title="Attach Permissions">
+    Attach the `AmazonRekognitionReadOnlyAccess` policy to the user
+  </Step>
+
+  <Step title="Create Access Keys">
+    1. Select the user and go to **Security credentials**
+    2. Click **Create access key**
+    3. Choose "Application running outside AWS"
+    4. Copy your **Access Key ID** and **Secret Access Key**
+  </Step>
+</Steps>
+
+<Warning>
+  Never commit your AWS credentials to version control. They provide access to your AWS account.
+</Warning>
+
+### OpenRouter
+
+Used for accessing Gemini 2.0 Flash for visual filtering and strategic planning.
+
+<Steps>
+  <Step title="Create an Account">
+    Sign up at [OpenRouter](https://openrouter.ai/)
+  </Step>
+
+  <Step title="Generate an API Key">
+    1. Go to **Keys** in the dashboard
+    2. Click **Create Key**
+    3. Copy your **API key**
+  </Step>
+
+  <Step title="Add Credits">
+    Add credits to your account to use the Gemini models (pricing is pay-per-use)
+  </Step>
+</Steps>
+
+### Gemini (Optional)
+
+A direct Gemini API key can be used as a fallback, though OpenRouter is recommended.
+
+<Steps>
+  <Step title="Get a Gemini API Key">
+    1. Visit [Google AI Studio](https://aistudio.google.com/)
+    2. Click **Get API key**
+    3. Create a key for your project
+  </Step>
+</Steps>
+
+<Note>
+  The direct Gemini API is optional. OpenRouter provides better reliability and includes web search capabilities.
+</Note>
+
+## Creating `.dev.vars`
+
+The Cloudflare Worker uses a `.dev.vars` file for local development secrets.
+
+<Steps>
+  <Step title="Create the file">
+    Create `apps/worker/.dev.vars` in your project:
+
+    ```bash
+    touch apps/worker/.dev.vars
+    ```
+  </Step>
+
+  <Step title="Add your credentials">
+    Copy this template and replace with your actual keys:
+
+    ```env
+    # Google Programmable Search Engine
+    GOOGLE_API_KEY=your_google_api_key
+    GOOGLE_CX=your_search_engine_id
+
+    # AWS Rekognition
+    AWS_ACCESS_KEY_ID=your_aws_access_key
+    AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+
+    # OpenRouter (Gemini 2.0 Flash)
+    OPENROUTER_API_KEY=your_openrouter_key
+    OPENROUTER_MODEL=google/gemini-2.5-flash-lite
+
+    # Gemini (optional fallback)
+    GEMINI_API_KEY=your_gemini_key
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  The `.dev.vars` file should never be committed to git. It's already in `.gitignore`.
+</Warning>
+
+## Environment Variables Reference
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GOOGLE_API_KEY` | Yes | Google Custom Search API key for image search |
+| `GOOGLE_CX` | Yes | Google Programmable Search Engine ID |
+| `AWS_ACCESS_KEY_ID` | Yes | AWS IAM access key for Rekognition |
+| `AWS_SECRET_ACCESS_KEY` | Yes | AWS IAM secret key for Rekognition |
+| `OPENROUTER_API_KEY` | Yes | OpenRouter API key for Gemini access |
+| `OPENROUTER_MODEL` | No | Model to use (default: `google/gemini-2.5-flash-lite`) |
+| `GEMINI_API_KEY` | No | Direct Gemini API key (fallback) |
+
+## Next Steps
+
+Once you've configured your environment variables, you're ready to:
+
+- [Run the app locally](/guides/local-development)
+- [Deploy to production](/guides/deployment)
+- [Configure advanced settings](/guides/configuration)
