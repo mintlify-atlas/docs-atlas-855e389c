@@ -1,0 +1,135 @@
+{
+  "projectType": "saas",
+  "projectName": "Connected",
+  "projectDescription": "AI-powered visual degrees of separation finder with real-time graph visualization and face verification",
+  "theme": "palm",
+  "primaryColor": "#ee7a1d",
+  "lightColor": "#f6bc8a",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/investigation-pipeline",
+              "features/graph-visualization",
+              "features/evidence-verification",
+              "features/real-time-streaming",
+              "features/confidence-scoring"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/cloudflare-stack",
+              "architecture/monorepo-structure",
+              "architecture/state-machine",
+              "architecture/data-flow"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/environment-setup",
+              "guides/local-development",
+              "guides/deployment",
+              "guides/configuration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "REST API",
+            "pages": [
+              "api/overview",
+              "api/chat",
+              "api/graph",
+              "api/health"
+            ]
+          },
+          {
+            "group": "WebSocket API",
+            "pages": [
+              "api/websocket/events",
+              "api/websocket/graph-updates"
+            ]
+          },
+          {
+            "group": "Types & Schemas",
+            "pages": [
+              "api/types/investigation",
+              "api/types/evidence",
+              "api/types/graph",
+              "api/types/events"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "External Services",
+            "pages": [
+              "integrations/google-pse",
+              "integrations/aws-rekognition",
+              "integrations/gemini",
+              "integrations/openrouter"
+            ]
+          },
+          {
+            "group": "Cloudflare Services",
+            "pages": [
+              "integrations/workers",
+              "integrations/workflows",
+              "integrations/durable-objects",
+              "integrations/kv",
+              "integrations/d1"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AI-powered multi-step investigation pipeline with strategic planning",
+    "Real-time streaming updates via WebSocket and Server-Sent Events",
+    "Interactive force-directed graph visualization with Sigma.js",
+    "Celebrity face verification using AWS Rekognition with 80% confidence threshold",
+    "Evidence-backed connections with visual proof for every relationship",
+    "Complete serverless architecture on Cloudflare platform",
+    "Monorepo structure with shared TypeScript packages",
+    "Rate limiting and budget controls for API usage"
+  ],
+  "publicApiSurface": [
+    "POST /api/chat/query - Start new investigation",
+    "GET /api/chat/stream/:runId - SSE event stream",
+    "GET /api/chat/events/:runId - Poll-based events",
+    "POST /api/chat/parse - Parse natural language query",
+    "GET /api/chat/status/:instanceId - Get workflow status",
+    "GET /api/graph - Get full verified graph",
+    "GET /api/graph/stats - Get graph statistics",
+    "GET /api/graph/path - Find shortest path between nodes",
+    "GET /api/health - Service health check",
+    "WebSocket /api/graph/ws - Real-time graph updates",
+    "WebSocket /api/chat/ws/:runId - Real-time investigation events",
+    "@visual-degrees/contracts - Shared TypeScript types",
+    "@visual-degrees/core - Investigation orchestration logic",
+    "@visual-degrees/integrations - External API clients"
+  ]
+}
